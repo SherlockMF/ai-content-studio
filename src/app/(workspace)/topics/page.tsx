@@ -1,0 +1,83 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import { toast } from "sonner";
+import { AppShell } from "@/components/shared/app-shell";
+import { EmptyState, ErrorState } from "@/components/shared/states";
+import { TopicWorkbench } from "@/components/shared/topic-workbench";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { useAppStore } from "@/lib/store/app-store";
+
+export default function TopicsPage() {
+  const { topics, deleteTopic, scheduleContent } = useAppStore();
+  const [error, setError] = useState<string | null>(null);
+
+  return (
+    <AppShell title="选题">
+      {error ? <ErrorState message={error} /> : null}
+      <TopicWorkbench />
+      {topics.length === 0 ? (
+        <EmptyState title="暂无已保存选题" description="从上方热点研究流程生成后，选题会自动保存。" />
+      ) : (
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {topics.map((topic) => (
+            <Card key={topic.id}>
+              <CardHeader>
+                <CardTitle className="text-base">{topic.title}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1 text-sm text-slate-600">
+                <p>核心观点：{topic.coreViewpoint}</p>
+                <p>内容板块：{topic.section}</p>
+                {topic.hotspotTitle ? <p>关联热点：{topic.hotspotTitle}</p> : null}
+                <p>平台：公众号</p>
+              </CardContent>
+              <CardFooter className="justify-end gap-2">
+                <Link
+                  href={`/content?topicId=${topic.id}`}
+                  className={buttonVariants({ variant: "outline", size: "sm" })}
+                >
+                  去写稿
+                </Link>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    try {
+                      const scheduledAt = scheduleContent({
+                        id: `content_topic_${topic.id}_${Date.now()}`,
+                        workspaceId: "ws_demo",
+                        topicId: topic.id,
+                        platform: "wechat",
+                        source: "imported",
+                        title: topic.title,
+                        body: "",
+                        digest: "",
+                        coverCopy: "",
+                        status: "待发布",
+                        publishedAt: null,
+                        createdAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString(),
+                      });
+                      toast.success(`已加入排期（${scheduledAt.slice(0, 10)}）`);
+                    } catch (err) {
+                      const message = err instanceof Error ? err.message : "排期失败";
+                      setError(message);
+                      toast.error(message);
+                    }
+                  }}
+                >
+                  加入排期
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => deleteTopic(topic.id)}>
+                  删除
+                </Button>
+              </CardFooter>
+            </Card>
+          ))}
+        </div>
+      )}
+    </AppShell>
+  );
+}
