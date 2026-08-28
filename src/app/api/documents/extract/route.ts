@@ -30,8 +30,14 @@ function extractDocxText(buffer: Uint8Array): string {
 }
 
 async function extractPdfText(buffer: Uint8Array) {
+  const pdfjsWorker = await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+  const workerGlobal = globalThis as typeof globalThis & {
+    pdfjsWorker?: typeof pdfjsWorker;
+  };
+  workerGlobal.pdfjsWorker = pdfjsWorker;
   const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const pdf = await getDocument({ data: buffer }).promise;
+  const loadingTask = getDocument({ data: buffer });
+  const pdf = await loadingTask.promise;
   const pages: string[] = [];
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
     const page = await pdf.getPage(pageNumber);
@@ -43,6 +49,7 @@ async function extractPdfText(buffer: Uint8Array) {
         .join(" ")
     );
   }
+  await loadingTask.destroy();
   return pages.filter(Boolean).join("\n\n");
 }
 
