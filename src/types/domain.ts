@@ -149,6 +149,68 @@ export interface Topic {
 /** 盲测封面可上传的原产品图标位 */
 export type BrandIconSlot = "Parvis" | "Codex" | "Cola" | "WorkBuddy";
 
+/** 事实 Diff 单条记录（持久化快照） */
+export interface FactDiffSnapshotItem {
+  kind: "number" | "percent" | "entity";
+  severity: "critical" | "warning";
+  status: "missing" | "added" | "changed";
+  before?: string;
+  after?: string;
+  message: string;
+}
+
+/** 最近一次 AI 改稿的事实核对结果 */
+export interface FactDiffSnapshot {
+  blocking: boolean;
+  summary: string;
+  itemCount: number;
+  items: FactDiffSnapshotItem[];
+  acknowledgedAt?: string;
+  createdAt: string;
+}
+
+export type XiaohongshuTone = "professional" | "social";
+
+/** 小红书两步转换的内部大纲（不落库） */
+export interface XiaohongshuOutline {
+  subjects: string[];
+  keyFacts: string[];
+  roundConclusions: string[];
+  overallJudgment: string;
+  optionalDetails: string[];
+}
+
+export interface XiaohongshuVariant {
+  title: string;
+  body: string;
+  cta: string;
+  hashtags: string[];
+}
+
+export interface XiaohongshuImagePrompt {
+  index: number;
+  role: "cover" | "content" | "ending";
+  objective: string;
+  overlayText: string;
+  composition: string;
+  prompt: string;
+  /** 已生成的配图 URL（本机 article-assets 或外链） */
+  imageUrl?: string;
+  /** 最近一次生图失败原因 */
+  imageError?: string;
+}
+
+export interface XiaohongshuGenerationResult {
+  variants: Record<XiaohongshuTone, XiaohongshuVariant>;
+  visualDirection: string;
+  imagePlan: XiaohongshuImagePrompt[];
+}
+
+export interface XiaohongshuDraftData extends XiaohongshuGenerationResult {
+  sourceContentId: string;
+  activeTone: XiaohongshuTone;
+}
+
 export interface ContentItem {
   id: string;
   workspaceId: string;
@@ -167,6 +229,9 @@ export interface ContentItem {
   supplementaryNotes?: string;
   /** 封面生图用的原品牌图标（Parvis/Codex/Cola/WorkBuddy） */
   brandIconRefs?: Partial<Record<BrandIconSlot, string>>;
+  /** 最近一次 AI 润色的事实 Diff；blocking 且未确认时不可标「待发布」 */
+  lastFactDiff?: FactDiffSnapshot;
+  xiaohongshu?: XiaohongshuDraftData;
   status: ContentStatus;
   publishedAt?: string | null;
   scheduledAt?: string | null;
@@ -190,7 +255,14 @@ export interface ContentVersion {
   versionNumber: number;
   title: string;
   body: string;
+  digest?: string;
+  coverCopy?: string;
+  cta?: string;
+  supplementaryNotes?: string;
   changeSource: "ai_generate" | "ai_rewrite" | "user_edit" | "restore";
+  /** AI 润色后的事实 Diff 摘要 */
+  factDiffSummary?: string;
+  xiaohongshu?: XiaohongshuDraftData;
   createdAt: string;
 }
 

@@ -1,5 +1,6 @@
 import {
   appendCoverIconInstructions,
+  isHarnessArticleCover,
   isParvisBlindtestCover,
   BLINDTEST_AGENT_VISUALS,
 } from "@/lib/illustrations/cover-prompt-style";
@@ -55,6 +56,7 @@ export function heuristicCoverSuggestions(input: {
   const overlay = input.coverCopy?.trim() || input.title.slice(0, 24);
   const theme = input.isEvaluation ? "测评对比" : "观点概念";
   const parvisBlindtest = isParvisBlindtestCover(input);
+  const harnessArticle = !parvisBlindtest && isHarnessArticleCover(input);
 
   const base = [
     "微信公众号头条封面图，比例 2.35:1（约 900×383 像素），安全区居中，",
@@ -69,7 +71,9 @@ export function heuristicCoverSuggestions(input: {
 
   const comparePrompt = parvisBlindtest
     ? `${base} 四列对比卡片。每列上方直接使用用户上传的原图标 reference attachment（Parvis/Codex/Cola/WorkBuddy），下方英文名 + 中文角色 + 分数。主标题「城市规划 Agent 盲测」，副标题「第一轮 25 项专项 · 第二轮开放式 T25」。${BLINDTEST_AGENT_VISUALS}`
-    : `${base} 左右或上下对比构图，每侧图标须为有含义符号，禁止无含义几何体。`;
+    : harnessArticle
+      ? `${base} 左右对比：左侧「聪明大脑 / Model」标注「能力上限」，右侧「工作台+工具+验证 / Harness」标注「兑现率」；中间等式「Agent = Model + Harness」。`
+      : `${base} 左右或上下对比构图，每侧图标须为有含义符号，禁止无含义几何体。`;
 
   const variants = [
     {
@@ -78,7 +82,9 @@ export function heuristicCoverSuggestions(input: {
       overlayText: overlay,
       gptPrompt: parvisBlindtest
         ? `${base} 中央为北港片区抽象地图轮廓，四角落排列用户上传的原图标 reference（Parvis/Codex/Cola/WorkBuddy），主标题大字。`
-        : `${base} 画面用有含义的扁平图标（地图层、流程节点、盾牌等），禁止无含义几何体，留白充足，标题区干净。`,
+        : harnessArticle
+          ? `${base} 中央大公式「Agent = Model + Harness」；下方金句「Model 决定上限，Harness 决定兑现率」；旁侧用大脑与工作台/插件模块隐喻，禁止无含义几何体，留白充足。`
+          : `${base} 画面用有含义的扁平图标（地图层、流程节点、盾牌等），禁止无含义几何体，留白充足，标题区干净。`,
       altText: "概念插画风格公众号封面",
     },
     {
@@ -94,7 +100,9 @@ export function heuristicCoverSuggestions(input: {
       overlayText: overlay,
       gptPrompt: parvisBlindtest
         ? `${base} 横向条形图展示开放式盲测得分 Parvis 38、WorkBuddy 67、GLM 75、August 90、Codex 91；各条旁使用用户上传的原图标 reference。`
-        : `${base} 中央简洁数据可视化，2-3 个关键数字，图标为有含义符号而非抽象几何。`,
+        : harnessArticle
+          ? `${base} 三层递进信息图：Prompt Engineering「怎么问」→ Context Engineering「让它知道什么」→ Harness Engineering「让它怎么工作」；底部强调「Done 可验证 / 可追溯」。`
+          : `${base} 中央简洁数据可视化，2-3 个关键数字，图标为有含义符号而非抽象几何。`,
       altText: "信息图风格公众号封面",
     },
   ].map((item, index) => normalizeCoverVariant(item, index));

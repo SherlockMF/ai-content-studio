@@ -113,7 +113,7 @@ export class DeepSeekProvider implements LLMProvider {
       choices?: Array<{ message?: { content?: string } }>;
     };
     const content = data.choices?.[0]?.message?.content;
-    if (!content) {
+    if (typeof content !== "string" || !content.trim()) {
       throw new Error("DeepSeek 未返回有效内容。");
     }
     return content;

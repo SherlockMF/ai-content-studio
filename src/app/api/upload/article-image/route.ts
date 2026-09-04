@@ -1,6 +1,5 @@
-import { mkdir, writeFile } from "fs/promises";
-import path from "path";
 import { NextResponse } from "next/server";
+import { getAssetStore } from "@/lib/assets/store";
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
@@ -19,19 +18,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ message: "图片不能超过 8MB" }, { status: 400 });
     }
 
-    const ext =
-      path.extname(file.name) ||
-      (file.type === "image/jpeg" ? ".jpg" : file.type === "image/webp" ? ".webp" : ".png");
-    const safeExt = ext.toLowerCase().replace(/[^a-z0-9.]/g, "") || ".png";
-    const fileName = `img_${Date.now()}${safeExt}`;
-    const dir = path.join(process.cwd(), "public", "article-assets");
-    await mkdir(dir, { recursive: true });
-    const buffer = Buffer.from(await file.arrayBuffer());
-    await writeFile(path.join(dir, fileName), buffer);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const stored = await getAssetStore().put({
+      bytes,
+      mimeType: file.type,
+      originalName: file.name,
+      kind: "article-image",
+    });
 
     return NextResponse.json({
-      url: `/article-assets/${fileName}`,
-      fileName,
+      url: stored.url,
+      fileName: stored.fileName,
+      contentHash: stored.contentHash,
     });
   } catch (error) {
     return NextResponse.json(

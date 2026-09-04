@@ -6,11 +6,11 @@ export const BRAND_ICON_SLOTS: BrandIconSlot[] = ["Parvis", "Codex", "Cola", "Wo
 
 export const COVER_GPT_PROMPT_RULES = `
 封面生图提示词（2.35:1，约 900×383，安全区居中）额外要求：
-1. 用户会在 ChatGPT 生图时自行上传原图标参考图：必须直接使用 reference attachment（保持形状与配色，仅缩放排列），禁止 AI 重新设计 logo。
-2. 若无参考图时才用「角色隐喻」（地图层、流程闭环、账本、盾牌等），禁止无含义随机几何体。
-3. 禁止把 Cola 画成可口可乐 logo；禁止虚构与参考图不一致的品牌图标。
-4. 测评对比封面：4 列卡片，每列「图标 + 英文名 + 中文角色 + 关键词/分数」。
-5. 主标题、副标题须写出完整中文，字少而大；数据类须写出具体分数（若正文有）。
+1. 图标须有明确语义隐喻（地图层、流程闭环、账本、盾牌等），禁止无含义随机几何体。
+2. 仅当上下文明确要求使用原品牌图标 reference 时，才写「直接使用用户上传的参考图」；否则不要要求用户附 logo PNG。
+3. 禁止把产品名误画成无关品牌商标（例如把 Cola 画成可口可乐）。
+4. 测评对比封面：分列展示对象时，每列「图标 + 名称 + 角色/关键词」；有分数则写出具体分数。
+5. 主标题、副标题须写出完整中文，字少而大；数据类须写出具体数字（若正文有）。
 `.trim();
 
 /** 追加到 GPT 生图提示词末尾：提醒用户在 ChatGPT 自行上传四张原图标 */
@@ -26,18 +26,34 @@ export const MANUAL_BRAND_ICON_APPENDIX = `
 布局：四列卡片，每列上方一个原图标，下方英文名 + 中文角色 + 分数。
 `.trim();
 
-/** 北港盲测稿 Agent 视觉隐喻（无参考图时的兜底说明，写入 gptPrompt 正文） */
+/** 北港盲测稿 Agent 原图标视觉（按官方对比图，写入生图提示词） */
 export const BLINDTEST_AGENT_VISUALS = `
-若用户未附参考图，各列图标隐喻如下：
-- Parvis（Auto）：叠层地图 + 计算器；标签「工具箱 · 专项强 · 38 分」
-- Codex（GPT + Skill）：流程闭环图；标签「闭环 · 91 分」
-- Cola：August 审计账本 + GLM 方案草图；标签「90 / 75 分」
-- WorkBuddy（Auto）：盾牌 + 禁行标志；标签「合规 · 67 分」
+各产品图标必须按下列原 logo 形态绘制（禁止换成无关几何体，禁止把 Cola 画成饮料罐）：
+- Parvis（Auto）：深色近黑方底圆角图标，中央晶透立体字母「P」，有白色折射光纹；标签「工具箱+Copilot · 38 分」
+- Codex+Skill：蓝紫有机云团形 logo，云内写 Codex，下方小角标 skills；标签「项目负责人 · 91 分」
+- Cola（August / GLM）：白底圆角方卡上粗橙色圆环（两列可共用同一橙环图标）；August 标签「技术总工 · 90 分」，GLM 标签「方案规划师 · 75 分」
+- WorkBuddy（Auto）：绿色圆角方底，白色线描猫/机器人头像（尖耳+两只圆角矩形眼）；标签「合规红队 · 67 分」
+`.trim();
+
+/** 小红书盲测对比图专用：五列卡片图标说明 */
+export const BLINDTEST_XHS_ICON_PROMPT = `
+若画面出现产品对比，必须使用以下原 logo 形态（与官方盲测对比图一致）：
+1. Parvis：深色方底 + 晶透立体字母 P + 白色光纹
+2. Codex：蓝紫云团形 + Codex 字样 + skills 角标
+3. Cola August / Cola GLM：白底圆角方 + 粗橙色圆环（两列同图标）
+4. WorkBuddy：绿色方底 + 白色线描猫/机器人头
+禁止自造六边形、随机积木、饮料可乐罐。分数若出现须准确：Parvis 38、Codex 91、August 90、GLM 75、WorkBuddy 67。
 `.trim();
 
 export function isParvisBlindtestCover(input: { title?: string; body?: string; digest?: string }) {
   const text = `${input.title ?? ""} ${input.digest ?? ""} ${input.body?.slice(0, 500) ?? ""}`;
   return /Parvis.*盲测|盲测.*Parvis|城市规划 Agent 盲测/i.test(text);
+}
+
+export function isHarnessArticleCover(input: { title?: string; body?: string; digest?: string }) {
+  if (isParvisBlindtestCover(input)) return false;
+  const text = `${input.title ?? ""} ${input.digest ?? ""} ${input.body?.slice(0, 800) ?? ""}`;
+  return /Harness|Agent\s*=\s*Model\s*\+\s*Harness|兑现率|Everything is a Plugin/i.test(text);
 }
 
 export function buildCoverContextHints(input: {
@@ -46,9 +62,6 @@ export function buildCoverContextHints(input: {
   body?: string;
   isEvaluation?: boolean;
 }) {
-  if (!input.isEvaluation && !isParvisBlindtestCover(input)) {
-    return "";
-  }
   if (isParvisBlindtestCover(input)) {
     return `
 本篇为 Parvis 城市规划 Agent 盲测。封面须体现「两轮测试」：
@@ -57,6 +70,18 @@ export function buildCoverContextHints(input: {
 - 四列分数：Parvis 38、Codex 91、August 90、WorkBuddy 67（Cola 列可注 GLM 75）。
 ${BLINDTEST_AGENT_VISUALS}
 `.trim();
+  }
+  if (isHarnessArticleCover(input)) {
+    return `
+本篇为 DeepSeek Harness / Harness Engineering 观点文。封面须突出核心公式与金句：
+- 主公式：「Agent = Model + Harness」
+- 金句：「Model 决定上限，Harness 决定兑现率」
+- 可用隐喻：大脑（Model）+ 工作台/工具/状态/验证闭环（Harness）；或插件模块拼装；禁止无含义几何体。
+- 不要画 DeepSeek 品牌 logo；不要写成产品发布海报。
+`.trim();
+  }
+  if (!input.isEvaluation) {
+    return "";
   }
   return "本篇为测评文：每个对比对象的图标须对应能力隐喻，禁止随机几何图标；若用户上传原图标 reference 则优先直接使用。";
 }

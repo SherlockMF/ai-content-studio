@@ -31,6 +31,34 @@ export function buildIllustrationPlaceholder(altText: string, gptPrompt: string)
   ].join("\n");
 }
 
+export function buildIllustrationImageBlock(
+  altText: string,
+  imageUrl: string,
+  gptPrompt: string
+) {
+  return [
+    `![${altText}](${imageUrl})`,
+    "",
+    "<!-- GPT 配图提示词（简体中文，复制到 ChatGPT 生图）",
+    gptPrompt,
+    "-->",
+  ].join("\n");
+}
+
+export function buildCoverImageBlock(
+  altText: string,
+  imageUrl: string,
+  gptPrompt: string
+) {
+  return [
+    `![${altText}](${imageUrl})`,
+    "",
+    "<!-- 公众号封面 GPT 提示词（简体中文，2.35:1，建议 900×383）",
+    gptPrompt,
+    "-->",
+  ].join("\n");
+}
+
 /** 在 anchorSnippet 之后插入配图占位块 */
 export function insertAfterAnchor(body: string, anchorSnippet: string, block: string) {
   const anchor = anchorSnippet.trim();

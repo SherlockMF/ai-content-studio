@@ -21,13 +21,23 @@ import {
 } from "@/lib/reading-time";
 import { buildWechatNarrativeStylePrompt } from "@/lib/wechat-narrative-style";
 import { buildSupplementaryNotesPrompt } from "@/lib/content-supplementary-notes";
+import { runXiaohongshuTwoPassConversion } from "@/lib/ai/xiaohongshu-conversion";
+import {
+  buildXiaohongshuConversionPrompt,
+  buildXiaohongshuOutlinePrompt,
+} from "@/lib/ai/xiaohongshu-prompt";
+import { buildCoverPromptRefinePrompt } from "@/lib/ai/cover-prompt-refine";
+import { diffFacts, formatFactDiffForNotes } from "@/lib/fact-diff";
 import {
   coverImageOutputSchema,
+  coverPromptRefineOutputSchema,
   illustrationSuggestionsOutputSchema,
   researchDirectionsOutputSchema,
   rewriteOutputSchema,
   topicsOutputSchema,
   wechatArticleSchema,
+  xiaohongshuOutlineSchema,
+  xiaohongshuOutputSchema,
 } from "@/lib/ai/schemas";
 import { HotspotItem } from "@/lib/hotspots/types";
 import {
@@ -46,7 +56,15 @@ import {
   appendCoverIconInstructions,
 } from "@/lib/illustrations/cover-prompt-style";
 import { prepareBodyForIllustrationAnalysis } from "@/lib/illustrations/prepare-body";
-import { GenerationHarness, PublishVoice, Topic, TopicDirection, WechatGenerateMode } from "@/types/domain";
+import {
+  GenerationHarness,
+  PublishVoice,
+  Topic,
+  TopicDirection,
+  WechatGenerateMode,
+  XiaohongshuGenerationResult,
+  XiaohongshuOutline,
+} from "@/types/domain";
 
 type WithLLM = { llm?: Partial<LLMClientSettings> | null };
 
@@ -192,6 +210,54 @@ Task: generateWechatArticle
 
   return provider.generateStructuredOutput<WechatArticleResult>(messages, wechatArticleSchema);
 }
+
+export async function generateXiaohongshuArticle(
+  input: {
+    voice: PublishVoice;
+    sourceContent: {
+      id: string;
+      title: string;
+      digest?: string;
+      body: string;
+      cta?: string;
+      supplementaryNotes?: string;
+    };
+  } & WithLLM
+): Promise<XiaohongshuGenerationResult> {
+  const provider = getLLMProvider(input.llm);
+  const voiceForPrompt = { ...input.voice, conversionNote: undefined };
+  const history = { materials: [] as string[], historyTitles: [input.sourceContent.title] };
+
+  return runXiaohongshuTwoPassConversion({
+    sourceContent: input.sourceContent,
+    voice: input.voice,
+    extractOutline: async () => {
+      const messages = createBaseMessages(
+        voiceForPrompt,
+        null,
+        history,
+        buildXiaohongshuOutlinePrompt(input.sourceContent)
+      );
+      return provider.generateStructuredOutput<XiaohongshuOutline>(
+        messages,
+        xiaohongshuOutlineSchema
+      );
+    },
+    writeArticle: async (outline) => {
+      const messages = createBaseMessages(
+        voiceForPrompt,
+        null,
+        history,
+        buildXiaohongshuConversionPrompt({
+          ...input.sourceContent,
+          outline,
+        })
+      );
+      return provider.generateStructuredOutput(messages, xiaohongshuOutputSchema);
+    },
+  });
+}
+
 export async function polishImportedDraft(
   input: {
     voice: PublishVoice;
@@ -220,15 +286,21 @@ export async function polishImportedDraft(
     supplementaryNotes: input.supplementaryNotes,
   });
   const reading = analyzeReadingTime(rewritten.candidate, readingProfile);
+  const factDiff = diffFacts(input.existingBody, rewritten.candidate);
   return {
     title: input.title ?? input.topic.title,
     digest: input.digest ?? "",
     coverCopy: input.coverCopy ?? "",
     body: rewritten.candidate,
     cta: input.cta ?? "",
-    notes: [rewritten.notes, `完读约 ${reading.minutes} 分钟（${reading.statusLabel}）`]
+    notes: [
+      rewritten.notes,
+      `完读约 ${reading.minutes} 分钟（${reading.statusLabel}）`,
+      formatFactDiffForNotes(factDiff),
+    ]
       .filter(Boolean)
       .join(" · "),
+    factDiff,
   };
 }
 
@@ -283,6 +355,7 @@ export async function generateWechatArticlePipeline(
       supplementaryNotes: input.supplementaryNotes,
     });
     const reading = analyzeReadingTime(rewritten.candidate, readingProfile);
+    const factDiff = diffFacts(input.existingBody, rewritten.candidate);
     return {
       title: input.existingMeta?.title ?? input.topic.title,
       digest: input.existingMeta?.digest ?? "",
@@ -290,9 +363,14 @@ export async function generateWechatArticlePipeline(
       body: rewritten.candidate,
       cta: input.existingMeta?.cta ?? "",
       notes:
-        [rewritten.notes, `完读约 ${reading.minutes} 分钟（${reading.statusLabel}）`]
+        [
+          rewritten.notes,
+          `完读约 ${reading.minutes} 分钟（${reading.statusLabel}）`,
+          formatFactDiffForNotes(factDiff),
+        ]
           .filter(Boolean)
           .join(" · ") || "已在保留测评结构与数据前提下分段润色。",
+      factDiff,
     };
   }
 
@@ -490,6 +568,26 @@ ${excerpt ? `--- 正文摘录 ---\n${excerpt}` : ""}`,
   } catch {
     return heuristicCoverSuggestions(input);
   }
+}
+
+/** 按用户修改建议优化单套封面 GPT 提示词 */
+export async function refineCoverPrompt(
+  input: {
+    title?: string;
+    styleLabel?: string;
+    overlayText?: string;
+    gptPrompt: string;
+    suggestion: string;
+  } & WithLLM
+) {
+  const provider = getLLMProvider(input.llm);
+  return provider.generateStructuredOutput(
+    [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: buildCoverPromptRefinePrompt(input) },
+    ],
+    coverPromptRefineOutputSchema
+  );
 }
 
 export async function generateContentSchedule() {

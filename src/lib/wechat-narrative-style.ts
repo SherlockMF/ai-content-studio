@@ -9,6 +9,7 @@ export const WECHAT_NARRATIVE_STYLE_PROMPT = `
 5. 对比类信息优先一张表，不要给每个对象单独开一章。
 6. 保留全部事实、数字、产品名与测试步骤；压缩重复判断和过渡句，不删结论。
 7. 结尾 1–2 段收束，不重复前文已说过的判断。
+8. 正文段落之间由发布排版统一空一行，Markdown 正文不要手打全角空格或首行缩进。
 `.trim();
 
 export function buildWechatNarrativeStylePrompt() {

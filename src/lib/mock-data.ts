@@ -76,7 +76,7 @@ export const DEMO_MATERIALS: MaterialItem[] = [
     id: "material_2",
     workspaceId: DEMO_WORKSPACE.id,
     title: "Agent = Model + Harness",
-    body: "决定 Agent 能不能真正工作的，不只是 Model，而是 Model 外面的整个 Harness。",
+    body: "Model 决定能力上限，Harness 决定能力兑现率。Agent 能不能稳定交付，关键看模型外面那套工作系统。",
     type: "观点",
     tags: ["Harness", "工具与工作流"],
     enabled: true,

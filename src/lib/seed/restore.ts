@@ -27,8 +27,14 @@ export function getSeedContentById(contentId: string): ContentItem | undefined {
 
 /** 正文明显被 AI 短稿覆盖时，自动恢复种子正文 */
 export function maybeRestoreSeedContent(item: ContentItem): ContentItem {
+  // 小红书稿天然短于公众号种子长文，绝不能用同选题种子覆盖
+  if (item.platform === "xiaohongshu" || item.xiaohongshu) {
+    return item;
+  }
+
   const seed = getSeedContentById(item.id) ?? getSeedContentByTopicId(item.topicId);
   if (!seed) return item;
+  if (seed.platform !== "wechat") return item;
 
   const seedLen = seed.body.length;
   const currentLen = item.body.length;
@@ -46,6 +52,54 @@ export function maybeRestoreSeedContent(item: ContentItem): ContentItem {
     updatedAt: item.updatedAt,
     source: "imported",
   };
+}
+
+/** 从版本历史找回被误删/覆盖的小红书稿件 */
+export function restoreOrphanedXiaohongshuFromVersions(input: {
+  contentItems: ContentItem[];
+  versions: ContentVersion[];
+}): ContentItem[] {
+  const existingIds = new Set(input.contentItems.map((item) => item.id));
+  const latestByContentId = new Map<string, ContentVersion>();
+
+  for (const version of input.versions) {
+    if (!version.xiaohongshu) continue;
+    const current = latestByContentId.get(version.contentItemId);
+    if (!current || version.versionNumber > current.versionNumber) {
+      latestByContentId.set(version.contentItemId, version);
+    }
+  }
+
+  const restored: ContentItem[] = [];
+  for (const [contentId, version] of latestByContentId) {
+    if (existingIds.has(contentId) || !version.xiaohongshu) continue;
+    const source =
+      input.contentItems.find(
+        (item) =>
+          item.platform === "wechat" && item.id === version.xiaohongshu?.sourceContentId
+      ) ?? getSeedContentById(version.xiaohongshu.sourceContentId);
+    const activeTone = version.xiaohongshu.activeTone;
+    const activeVariant = version.xiaohongshu.variants[activeTone];
+    restored.push({
+      id: contentId,
+      workspaceId: source?.workspaceId ?? "ws_demo",
+      topicId: source?.topicId ?? "topic_unknown",
+      platform: "xiaohongshu",
+      source: "ai",
+      title: activeVariant?.title ?? version.title,
+      body: activeVariant?.body ?? version.body,
+      digest: version.digest,
+      coverCopy: version.coverCopy ?? version.xiaohongshu.imagePlan[0]?.overlayText,
+      cta: activeVariant?.cta ?? version.cta,
+      supplementaryNotes: version.supplementaryNotes,
+      status: "编辑中",
+      createdAt: version.createdAt,
+      updatedAt: version.createdAt,
+      xiaohongshu: version.xiaohongshu,
+    });
+  }
+
+  return restored.length > 0 ? [...input.contentItems, ...restored] : input.contentItems;
 }
 
 export function inferContentSource(item: Pick<ContentItem, "id" | "topicId" | "source">): ContentItem["source"] {

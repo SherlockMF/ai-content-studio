@@ -1,4 +1,12 @@
 import { z } from "zod";
+import {
+  clampXiaohongshuBody,
+  clampXiaohongshuTitle,
+} from "@/lib/xiaohongshu/limits";
+import {
+  extractHashtagsFromText,
+  foldXiaohongshuVariant,
+} from "@/lib/xiaohongshu/note-body";
 
 export const topicDirectionSchema = z.object({
   title: z.string(),
@@ -46,6 +54,91 @@ export const contentOutputSchema = z.object({
   cta: z.string(),
 });
 
+const xiaohongshuVariantSchema = z
+  .object({
+    title: z.string(),
+    body: z.string(),
+    cta: z.string().optional().default(""),
+    hashtags: z.array(z.string()).optional().default([]),
+  })
+  .transform((value) =>
+    foldXiaohongshuVariant({
+      title: clampXiaohongshuTitle(value.title.trim()),
+      body: clampXiaohongshuBody(value.body),
+      cta: value.cta ?? "",
+      hashtags: value.hashtags ?? [],
+    })
+  )
+  .superRefine((value, context) => {
+    if (!value.title.trim()) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "标题不能为空",
+        path: ["title"],
+      });
+    }
+    if (!value.body.trim()) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "正文不能为空",
+        path: ["body"],
+      });
+    }
+    const tags = extractHashtagsFromText(value.body);
+    if (tags.length < 5 || tags.length > 8) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "正文末尾需要 5～8 个 #话题",
+        path: ["body"],
+      });
+    }
+  });
+
+export const xiaohongshuOutlineSchema = z.object({
+  subjects: z.array(z.string().trim().min(1)).min(1),
+  keyFacts: z.array(z.string().trim().min(1)).min(1),
+  roundConclusions: z.array(z.string().trim().min(1)).min(1),
+  overallJudgment: z.string().trim().min(1),
+  optionalDetails: z
+    .array(z.string().trim().min(1))
+    .nullish()
+    .transform((value) => value ?? []),
+});
+
+export const xiaohongshuOutputSchema = z.object({
+  variants: z.object({
+    professional: xiaohongshuVariantSchema,
+    social: xiaohongshuVariantSchema,
+  }),
+  visualDirection: z.string().trim().min(1),
+  imagePlan: z
+    .array(
+      z.object({
+        index: z.number().int().positive(),
+        role: z.enum(["cover", "content", "ending"]),
+        objective: z.string().trim().min(1),
+        overlayText: z.string().trim().min(1),
+        composition: z.string().trim().min(1),
+        prompt: z.string().trim().min(1),
+        imageUrl: z.string().trim().min(1).optional(),
+        imageError: z.string().trim().min(1).optional(),
+      })
+    )
+    .min(5)
+    .max(8)
+    .superRefine((items, context) => {
+      if (items[0]?.role !== "cover") {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "首张图片必须是 cover" });
+      }
+      if (items.at(-1)?.role !== "ending") {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "末张图片必须是 ending" });
+      }
+      if (items.some((item, index) => item.index !== index + 1)) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: "图片序号必须从 1 连续递增" });
+      }
+    }),
+});
+
 export const reviewOutputSchema = z.object({
   score: z.number().min(0).max(100),
   issues: z.array(
@@ -89,4 +182,9 @@ export const coverImageVariantSchema = z.object({
 export const coverImageOutputSchema = z.object({
   summary: z.string().optional(),
   variants: z.array(coverImageVariantSchema).min(1).max(4),
+});
+
+export const coverPromptRefineOutputSchema = z.object({
+  gptPrompt: z.string().trim().min(1),
+  overlayText: z.string().trim().min(1).optional(),
 });

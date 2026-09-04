@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  buildIllustrationImageBlock,
   buildIllustrationPlaceholder,
   insertAfterAnchor,
   IllustrationSuggestion,
@@ -26,6 +27,11 @@ interface IllustrationSuggestionsDialogProps {
   suggestions: IllustrationSuggestion[];
   insertedIds: Set<string>;
   onInsert: (suggestion: IllustrationSuggestion) => boolean;
+  /** 预留：一键生图后插入（当前 UI 未启用，API 仍保留） */
+  onInsertGenerated?: (
+    suggestion: IllustrationSuggestion,
+    imageUrl: string
+  ) => boolean;
   onRegenerate?: () => void;
 }
 
@@ -45,8 +51,7 @@ export function IllustrationSuggestionsDialog({
         <DialogHeader>
           <DialogTitle>配图建议</DialogTitle>
           <DialogDescription>
-            已识别适合插图的位置。复制提示词到 ChatGPT 生图，或插入占位符后再替换图片链接。本功能不调用生图
-            API。
+            已识别适合插图的位置。复制提示词到 ChatGPT 生图，或插入占位符后再替换图片链接。
           </DialogDescription>
         </DialogHeader>
 
@@ -168,7 +173,28 @@ export function useIllustrationInsert(
     return true;
   };
 
+  const insertGeneratedSuggestion = (
+    suggestion: IllustrationSuggestion,
+    imageUrl: string
+  ) => {
+    const block = buildIllustrationImageBlock(
+      suggestion.altText,
+      imageUrl,
+      suggestion.gptPrompt
+    );
+    const result = insertAfterAnchor(body, suggestion.anchorSnippet, block);
+    if (!result.ok) return false;
+    setBody(result.body);
+    setInsertedIds((prev) => new Set(prev).add(suggestion.id));
+    return true;
+  };
+
   const resetInserted = () => setInsertedIds(new Set());
 
-  return { insertedIds, insertSuggestion, resetInserted };
+  return {
+    insertedIds,
+    insertSuggestion,
+    insertGeneratedSuggestion,
+    resetInserted,
+  };
 }

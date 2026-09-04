@@ -21,12 +21,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { CONTENT_STATUSES } from "@/lib/content-status";
 import { createImportBaseline, hasImportBaseline } from "@/lib/content-baseline";
-import {
-  buildArticleMarkdown,
-  buildMarkdownZipBundle,
-  countExportableImages,
-} from "@/lib/export-markdown-bundle";
-import { buildWechatDocxBundle } from "@/lib/export-wechat-docx";
+import { countExportableImages } from "@/lib/export-markdown-bundle";
+import { WechatPublishPanel } from "@/components/shared/wechat-publish-panel";
+import { FactDiffPanel } from "@/components/shared/fact-diff-panel";
+import { MarkdownImportDialog } from "@/components/shared/markdown-import-dialog";
+import { XiaohongshuEditor } from "@/components/shared/xiaohongshu-editor";
 import { insertMarkdownAtCursor } from "@/lib/insert-markdown-at-cursor";
 import {
   formatCoverStatusHint,
@@ -39,7 +38,13 @@ import {
 } from "@/lib/extract-document-text";
 import { withLLMPayload } from "@/lib/ai/llm-settings";
 import { isEvaluationDraft } from "@/lib/draft-profile";
+import { hasText } from "@/lib/has-text";
 import { parseMarkdownDraft } from "@/lib/import-markdown";
+import {
+  ImportedMarkdownProject,
+  projectToDraftFields,
+} from "@/lib/import-markdown-project";
+import { FactDiffReport, factSnapshotToReport, toFactSnapshot } from "@/lib/fact-diff";
 import {
   analyzeReadingTime,
   formatReadingTimeBadge,
@@ -52,9 +57,14 @@ import {
   useIllustrationInsert,
 } from "@/components/shared/illustration-suggestions-dialog";
 import { CoverSuggestionsDialog } from "@/components/shared/cover-suggestions-dialog";
-import { IllustrationSuggestion } from "@/lib/illustrations/insert";
-import { CoverImageVariant } from "@/lib/illustrations/cover";
-import { ContentItem, ContentSource, ContentStatus, KnowledgeReference, WechatGenerateMode } from "@/types/domain";
+import { useContentMedia } from "@/app/(workspace)/content/hooks/use-content-media";
+import {
+  ContentItem,
+  ContentSource,
+  ContentStatus,
+  KnowledgeReference,
+  WechatGenerateMode,
+} from "@/types/domain";
 
 function resolveInitialTopicId(initialTopicId: string | null, topicIds: string[]) {
   if (initialTopicId && topicIds.includes(initialTopicId)) return initialTopicId;
@@ -63,33 +73,6 @@ function resolveInitialTopicId(initialTopicId: string | null, topicIds: string[]
 
 function sourceLabel(source: ContentSource | undefined) {
   return source === "imported" ? "已有草稿" : "AI 生成";
-}
-
-function buildCoverSourceKey(input: {
-  topicId: string;
-  title: string;
-  digest: string;
-  coverCopy: string;
-  body: string;
-}) {
-  return [
-    input.topicId,
-    input.title.trim(),
-    input.digest.trim(),
-    input.coverCopy.trim(),
-    input.body.length,
-    input.body.slice(0, 800),
-  ].join("|");
-}
-
-function buildIllustrationSourceKey(input: {
-  topicId: string;
-  title: string;
-  body: string;
-}) {
-  return [input.topicId, input.title.trim(), input.body.length, input.body.slice(0, 1200)].join(
-    "|"
-  );
 }
 
 export function ContentEditor({ initialTopicId }: { initialTopicId: string | null }) {
@@ -113,6 +96,7 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
     addVersion,
     reviews,
     setReviews,
+    addReview,
     publishVoice,
     materials,
   } = useAppStore();
@@ -127,6 +111,9 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
     ) ?? null;
 
   const [activeTopicId, setActiveTopicId] = useState(resolvedTopicId);
+  const [activePlatform, setActivePlatform] = useState<"wechat" | "xiaohongshu">("wechat");
+  const [xiaohongshuConversionRequestId, setXiaohongshuConversionRequestId] = useState(0);
+  const [xiaohongshuConversionPending, setXiaohongshuConversionPending] = useState(false);
   const [draftTitle, setDraftTitle] = useState(initialContent?.title ?? "");
   const [draftDigest, setDraftDigest] = useState(initialContent?.digest ?? "");
   const [draftCover, setDraftCover] = useState(initialContent?.coverCopy ?? "");
@@ -146,29 +133,17 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
   const [regenDialogOpen, setRegenDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importRaw, setImportRaw] = useState("");
-  const [illustrationDialogOpen, setIllustrationDialogOpen] = useState(false);
-  const [illustrationLoading, setIllustrationLoading] = useState(false);
-  const [illustrationSummary, setIllustrationSummary] = useState<string>();
-  const [illustrationSuggestions, setIllustrationSuggestions] = useState<IllustrationSuggestion[]>(
-    []
-  );
-  const [coverDialogOpen, setCoverDialogOpen] = useState(false);
-  const [coverLoading, setCoverLoading] = useState(false);
-  const [coverSummary, setCoverSummary] = useState<string>();
-  const [coverVariants, setCoverVariants] = useState<CoverImageVariant[]>([]);
-  const [coverCacheKey, setCoverCacheKey] = useState<string | null>(null);
-  const [illustrationCacheKey, setIllustrationCacheKey] = useState<string | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [supplementaryDocLoading, setSupplementaryDocLoading] = useState(false);
   const [imageUploadLoading, setImageUploadLoading] = useState(false);
-  const [exportBundleLoading, setExportBundleLoading] = useState(false);
-  const [exportWechatDocxLoading, setExportWechatDocxLoading] = useState(false);
   const [knowledgeReferences, setKnowledgeReferences] = useState<KnowledgeReference[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [factDiffReport, setFactDiffReport] = useState<FactDiffReport | null>(null);
+  const [factDiffAcknowledged, setFactDiffAcknowledged] = useState(false);
   const supplementaryFileRef = useRef<HTMLInputElement>(null);
   const bodyImageInputRef = useRef<HTMLInputElement>(null);
   const bodyTextareaRef = useRef<HTMLTextAreaElement>(null);
   const bodySelectionRef = useRef({ start: 0, end: 0 });
+  const xiaohongshuVersionNumberRef = useRef<Record<string, number>>({});
   const { insertedIds, insertSuggestion, resetInserted } = useIllustrationInsert(
     draftBody,
     setDraftBody
@@ -194,6 +169,13 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
       ),
     [contentItems, activeTopicId]
   );
+  const xiaohongshuContent = useMemo(
+    () =>
+      contentItems.find(
+        (item) => item.topicId === activeTopicId && item.platform === "xiaohongshu"
+      ) ?? null,
+    [contentItems, activeTopicId]
+  );
   const relatedVersions = versions.filter((version) => version.contentItemId === activeContent?.id);
   const latestReview = useMemo(() => {
     if (!activeContent?.id) return undefined;
@@ -201,6 +183,44 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
       .filter((review) => review.contentItemId === activeContent.id)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
   }, [reviews, activeContent]);
+  const latestXiaohongshuReview = useMemo(() => {
+    if (!xiaohongshuContent?.id) return undefined;
+    return [...reviews]
+      .filter((review) => review.contentItemId === xiaohongshuContent.id)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  }, [reviews, xiaohongshuContent]);
+  const sourceContentDraft = useMemo<ContentItem | null>(() => {
+    if (!activeTopicId) return null;
+    const fallbackDate = activeContent?.createdAt ?? "1970-01-01T00:00:00.000Z";
+    return {
+      ...(activeContent ?? {}),
+      id: activeContent?.id ?? `content_${activeTopicId}`,
+      workspaceId: activeContent?.workspaceId ?? "ws_demo",
+      topicId: activeTopicId,
+      platform: "wechat",
+      source: draftSource,
+      title: draftTitle,
+      digest: draftDigest,
+      coverCopy: draftCover,
+      body: draftBody,
+      cta: draftCta,
+      supplementaryNotes: draftSupplementaryNotes,
+      status: draftStatus,
+      createdAt: fallbackDate,
+      updatedAt: activeContent?.updatedAt ?? fallbackDate,
+    };
+  }, [
+    activeContent,
+    activeTopicId,
+    draftBody,
+    draftCover,
+    draftCta,
+    draftDigest,
+    draftSource,
+    draftStatus,
+    draftSupplementaryNotes,
+    draftTitle,
+  ]);
   const isImported = (activeContent?.source ?? draftSource) === "imported";
   const isEvaluation = isEvaluationDraft({ topicId: activeTopicId, body: draftBody });
   const canRestoreOriginal = hasImportBaseline(activeContent);
@@ -220,33 +240,17 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
     () => formatCoverStatusHint(draftBody, draftCover),
     [draftBody, draftCover]
   );
-  const coverSourceKey = useMemo(
-    () =>
-      buildCoverSourceKey({
-        topicId: activeTopicId,
-        title: draftTitle,
-        digest: draftDigest,
-        coverCopy: draftCover,
-        body: draftBody,
-      }),
-    [activeTopicId, draftTitle, draftDigest, draftCover, draftBody]
-  );
-  const illustrationSourceKey = useMemo(
-    () =>
-      buildIllustrationSourceKey({
-        topicId: activeTopicId,
-        title: draftTitle,
-        body: draftBody,
-      }),
-    [activeTopicId, draftTitle, draftBody]
-  );
-  const hasCoverCache =
-    coverVariants.length > 0 && coverCacheKey !== null && coverCacheKey === coverSourceKey;
-  const hasIllustrationCache =
-    illustrationSuggestions.length > 0 &&
-    illustrationCacheKey !== null &&
-    illustrationCacheKey === illustrationSourceKey;
+  const media = useContentMedia({
+    topicId: activeTopicId,
+    title: draftTitle,
+    digest: draftDigest,
+    coverCopy: draftCover,
+    body: draftBody,
+    isEvaluation,
+    resetInserted,
+  });
   const exportableImages = useMemo(() => countExportableImages(draftBody), [draftBody]);
+  const factBlocked = Boolean(factDiffReport?.blocking && !factDiffAcknowledged);
 
   const rememberBodySelection = () => {
     const el = bodyTextareaRef.current;
@@ -288,36 +292,34 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
     }
   };
 
-  const resetCoverAnalysis = () => {
-    setCoverVariants([]);
-    setCoverSummary(undefined);
-    setCoverCacheKey(null);
-  };
-
-  const resetIllustrationAnalysis = () => {
-    setIllustrationSuggestions([]);
-    setIllustrationSummary(undefined);
-    setIllustrationCacheKey(null);
-    resetInserted();
-  };
-
   const loadContentIntoDraft = (content: ContentItem) => {
     setDraftTitle(content.title);
     setDraftDigest(content.digest ?? "");
     setDraftCover(content.coverCopy ?? "");
-    setDraftBody(content.body);
+    setDraftBody(content.body ?? "");
     setDraftCta(content.cta ?? "");
     setDraftSupplementaryNotes(content.supplementaryNotes ?? "");
     setDraftSource(content.source ?? "imported");
     setDraftStatus(content.status);
+    if (content.lastFactDiff) {
+      setFactDiffReport(factSnapshotToReport(content.lastFactDiff));
+      setFactDiffAcknowledged(Boolean(content.lastFactDiff.acknowledgedAt));
+    } else {
+      setFactDiffReport(null);
+      setFactDiffAcknowledged(false);
+    }
   };
 
   const selectTopic = (topicId: string) => {
     resetInserted();
-    resetCoverAnalysis();
-    resetIllustrationAnalysis();
+    media.resetIllustrationAnalysis();
     setActiveTopicId(topicId);
+    setActivePlatform("wechat");
+    setXiaohongshuConversionRequestId(0);
+    setXiaohongshuConversionPending(false);
     setKnowledgeReferences([]);
+    setFactDiffReport(null);
+    setFactDiffAcknowledged(false);
     const topic = topics.find((item) => item.id === topicId);
     const content = contentItems.find(
       (item) => item.topicId === topicId && item.platform === "wechat"
@@ -359,6 +361,8 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
       cta: patch.cta ?? draftCta,
       importBaseline: patch.importBaseline ?? activeContent?.importBaseline,
       supplementaryNotes: patch.supplementaryNotes ?? draftSupplementaryNotes,
+      brandIconRefs: patch.brandIconRefs ?? activeContent?.brandIconRefs,
+      lastFactDiff: patch.lastFactDiff ?? activeContent?.lastFactDiff,
       status: patch.status ?? draftStatus,
       createdAt: patch.createdAt ?? activeContent?.createdAt ?? now,
       updatedAt: now,
@@ -372,7 +376,12 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
       versionNumber: relatedVersions.length + 1,
       title: next.title,
       body: next.body,
+      digest: next.digest,
+      coverCopy: next.coverCopy,
+      cta: next.cta,
+      supplementaryNotes: next.supplementaryNotes,
       changeSource,
+      factDiffSummary: next.lastFactDiff?.summary,
       createdAt: now,
     });
     loadContentIntoDraft(next);
@@ -414,11 +423,17 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
       coverCopy: string;
       body: string;
       cta: string;
+      factDiff?: FactDiffReport;
+      notes?: string;
     },
     mode: WechatGenerateMode,
     source: ContentSource
   ) => {
     const contentId = activeContent?.id ?? `content_${Date.now()}`;
+    if (result.factDiff) {
+      setFactDiffReport(result.factDiff);
+      setFactDiffAcknowledged(!result.factDiff.blocking);
+    }
     persistDraft(
       {
         id: contentId,
@@ -429,7 +444,10 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
         coverCopy: result.coverCopy,
         body: result.body,
         cta: result.cta,
-        status: source === "ai" ? "AI 草稿" : draftStatus === "待发布" ? "待发布" : "编辑中",
+        lastFactDiff: result.factDiff
+          ? toFactSnapshot(result.factDiff, result.factDiff.blocking ? undefined : new Date().toISOString())
+          : undefined,
+        status: source === "ai" ? "AI 草稿" : draftStatus === "待发布" ? "编辑中" : "编辑中",
       },
       mode === "polish" || mode === "preserve_structure" ? "ai_rewrite" : "ai_generate"
     );
@@ -438,7 +456,13 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
       polish: "已润色草稿（保留测评结构与数据）",
       preserve_structure: "已在保留结构前提下润色",
     };
-    toast.success(labels[mode]);
+    if (result.factDiff?.blocking) {
+      toast.message(labels[mode], {
+        description: "事实 Diff 发现关键数值变化，请确认后再标「待发布」",
+      });
+    } else {
+      toast.success(labels[mode]);
+    }
   };
 
   const runGeneration = async (mode: WechatGenerateMode) => {
@@ -560,104 +584,46 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
     toast.success("草稿已导入");
   };
 
-  const analyzeIllustrations = async (options?: { force?: boolean }) => {
-    if (illustrationLoading) return;
-    if (!draftBody.trim()) {
-      toast.error("请先填写正文");
+  const applyImportedProject = (project: ImportedMarkdownProject) => {
+    if (!selectedTopic) {
+      toast.error("请先选择选题");
       return;
     }
-    const cached =
-      !options?.force &&
-      illustrationSuggestions.length > 0 &&
-      illustrationCacheKey !== null &&
-      illustrationCacheKey === illustrationSourceKey;
-    if (cached) {
-      setIllustrationDialogOpen(true);
+    const fields = projectToDraftFields(project);
+    if (!fields.body.trim()) {
+      toast.error("项目中没有有效正文");
       return;
     }
-    setIllustrationDialogOpen(true);
-    setIllustrationLoading(true);
-    if (options?.force) {
-      setIllustrationSummary(undefined);
-      setIllustrationSuggestions([]);
-      resetInserted();
-    }
-    try {
-      const res = await fetch("/api/ai/illustrations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          withLLMPayload({
-            title: draftTitle,
-            body: draftBody,
-            topicId: activeTopicId,
-            isEvaluation,
-          })
-        ),
-      });
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.message || "配图分析失败");
-      setIllustrationSummary(result.summary);
-      setIllustrationSuggestions(result.suggestions ?? []);
-      setIllustrationCacheKey(illustrationSourceKey);
-      if (!result.suggestions?.length) {
-        toast.message("未找到合适的配图位置");
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "配图分析失败");
-      setIllustrationDialogOpen(false);
-    } finally {
-      setIllustrationLoading(false);
-    }
-  };
-
-  const analyzeCover = async (options?: { force?: boolean }) => {
-    if (coverLoading) return;
-    if (!draftTitle.trim() && !draftBody.trim()) {
-      toast.error("请先填写标题或正文");
-      return;
-    }
-    const cached =
-      !options?.force &&
-      coverVariants.length > 0 &&
-      coverCacheKey !== null &&
-      coverCacheKey === coverSourceKey;
-    if (cached) {
-      setCoverDialogOpen(true);
-      return;
-    }
-    setCoverDialogOpen(true);
-    setCoverLoading(true);
-    if (options?.force) {
-      setCoverSummary(undefined);
-      setCoverVariants([]);
-    }
-    try {
-      const res = await fetch("/api/ai/cover", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          withLLMPayload({
-            title: draftTitle,
-            digest: draftDigest,
-            coverCopy: draftCover,
-            body: draftBody,
-            topicId: activeTopicId,
-            isEvaluation,
-          })
-        ),
-      });
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.message || "封面图分析失败");
-      setCoverSummary(result.summary);
-      setCoverVariants(result.variants ?? []);
-      setCoverCacheKey(coverSourceKey);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "封面图分析失败");
-      setCoverDialogOpen(false);
-    } finally {
-      setCoverLoading(false);
-    }
+    const baseline = createImportBaseline({
+      title: fields.title,
+      body: fields.body,
+      digest: fields.digest,
+      coverCopy: draftCover,
+      cta: draftCta,
+    });
+    const contentId = activeContent?.id ?? `content_${Date.now()}`;
+    persistDraft(
+      {
+        id: contentId,
+        topicId: selectedTopic.id,
+        source: "imported",
+        title: fields.title,
+        digest: fields.digest,
+        coverCopy: draftCover,
+        body: fields.body,
+        cta: draftCta,
+        importBaseline: baseline,
+        status: "编辑中",
+      },
+      "user_edit"
+    );
+    setImportDialogOpen(false);
+    setImportRaw("");
+    toast.success(
+      `项目已导入：${project.uploadedImages} 张图片已上传${
+        project.skippedImages > 0 ? `，${project.skippedImages} 处未匹配` : ""
+      }`
+    );
   };
 
   const runReview = async () => {
@@ -720,6 +686,59 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
     }
   };
 
+  const saveXiaohongshuContent = (
+    content: ContentItem,
+    changeSource: "ai_generate" | "user_edit" | "ai_rewrite"
+  ) => {
+    const now = new Date().toISOString();
+    const persistedVersionNumber =
+      versions
+        .filter((version) => version.contentItemId === content.id)
+        .reduce((highest, version) => Math.max(highest, version.versionNumber), 0);
+    const versionNumber =
+      Math.max(
+        persistedVersionNumber,
+        xiaohongshuVersionNumberRef.current[content.id] ?? 0
+      ) + 1;
+    xiaohongshuVersionNumberRef.current[content.id] = versionNumber;
+    upsertContent(content);
+    addVersion({
+      id: `version_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      contentItemId: content.id,
+      versionNumber,
+      title: content.title,
+      body: content.body,
+      digest: content.digest,
+      coverCopy: content.coverCopy,
+      cta: content.cta,
+      supplementaryNotes: content.supplementaryNotes,
+      changeSource,
+      xiaohongshu: content.xiaohongshu,
+      createdAt: now,
+    });
+  };
+
+  const requestXiaohongshuConversion = () => {
+    if (xiaohongshuConversionPending) return;
+    if (!hasText(sourceContentDraft?.body)) {
+      toast.error("请先填写公众号正文");
+      return;
+    }
+    if (!activeContent) {
+      persistDraft(
+        {
+          id: sourceContentDraft.id,
+          topicId: sourceContentDraft.topicId,
+          source: sourceContentDraft.source,
+          status: sourceContentDraft.status,
+        },
+        "user_edit"
+      );
+    }
+    setXiaohongshuConversionPending(true);
+    setXiaohongshuConversionRequestId((requestId) => requestId + 1);
+  };
+
   const hasDraft = Boolean(activeContent || draftBody.trim());
 
   return (
@@ -763,6 +782,33 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
         </Card>
 
         <div className="space-y-4">
+          <Card>
+            <CardContent className="flex flex-wrap items-center justify-between gap-3 py-3">
+              <div>
+                <p className="text-sm font-medium text-slate-900">当前平台</p>
+                <p className="text-xs text-slate-500">同一选题下切换公众号原稿与关联的小红书稿件</p>
+              </div>
+              <div className="flex rounded-lg bg-slate-100 p-1">
+                <Button
+                  size="sm"
+                  variant={activePlatform === "wechat" ? "default" : "ghost"}
+                  onClick={() => setActivePlatform("wechat")}
+                >
+                  公众号
+                </Button>
+                <Button
+                  size="sm"
+                  variant={activePlatform === "xiaohongshu" ? "default" : "ghost"}
+                  onClick={() => setActivePlatform("xiaohongshu")}
+                >
+                  小红书
+                  {xiaohongshuContent?.xiaohongshu ? " · 已生成" : ""}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className={activePlatform === "wechat" ? "space-y-4" : "hidden"}>
           {error ? <ErrorState message={error} /> : null}
 
           {selectedTopic ? (
@@ -820,6 +866,18 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
               >
                 放弃未保存修改
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!draftBody.trim() || xiaohongshuConversionPending}
+                onClick={requestXiaohongshuConversion}
+              >
+                {xiaohongshuConversionPending
+                  ? "转换小红书中…"
+                  : xiaohongshuContent?.xiaohongshu
+                    ? "重新转小红书"
+                    : "一键转小红书"}
+              </Button>
             </CardContent>
           </Card>
 
@@ -844,6 +902,13 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
                         value={draftStatus}
                         onValueChange={(value) => {
                           const target = value as ContentStatus;
+                          if (
+                            (target === "待发布" || target === "已发布") &&
+                            factBlocked
+                          ) {
+                            toast.error("事实 Diff 未确认，不能标记为待发布/已发布");
+                            return;
+                          }
                           setDraftStatus(target);
                           if (!activeContent) return;
                           const publishedAt =
@@ -1010,24 +1075,26 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
                     </Button>
                     <Button
                       variant="outline"
-                      disabled={!draftBody.trim() || illustrationLoading}
-                      onClick={() => void analyzeIllustrations()}
+                      disabled={!draftBody.trim() || media.illustrationLoading}
+                      onClick={() => void media.analyzeIllustrations()}
                     >
-                      {illustrationLoading
+                      {media.illustrationLoading
                         ? "分析中..."
-                        : hasIllustrationCache
+                        : media.hasIllustrationCache
                           ? `查看配图建议${illustrationHint ? ` ${illustrationHint}` : ""}`
                           : `识别正文配图${illustrationHint ? ` ${illustrationHint}` : ""}`}
                     </Button>
                     <Button
                       type="button"
                       variant="outline"
-                      disabled={coverLoading || (!draftTitle.trim() && !draftBody.trim())}
-                      onClick={() => void analyzeCover()}
+                      disabled={
+                        media.coverLoading || (!draftTitle.trim() && !draftBody.trim())
+                      }
+                      onClick={() => void media.analyzeCover()}
                     >
-                      {coverLoading
+                      {media.coverLoading
                         ? "生成中..."
-                        : hasCoverCache
+                        : media.hasCoverCache
                           ? `查看封面图提示词 ${coverStatusHint}`
                           : `生成封面图提示词 ${coverStatusHint}`}
                     </Button>
@@ -1045,104 +1112,40 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
                     >
                       {reviewLoading ? "质检中..." : "运行质检"}
                     </Button>
-                    <Button
-                      disabled={exportWechatDocxLoading || !draftBody.trim()}
-                      onClick={async () => {
-                        setExportWechatDocxLoading(true);
-                        try {
-                          const { blob, fileName, clipboardText } = await buildWechatDocxBundle({
-                            title: draftTitle,
-                            digest: draftDigest,
-                            body: draftBody,
-                          });
-                          const a = document.createElement("a");
-                          a.href = URL.createObjectURL(blob);
-                          a.download = fileName;
-                          a.click();
-                          URL.revokeObjectURL(a.href);
-                          await navigator.clipboard.writeText(clipboardText);
-                          toast.success(
-                            "已导出 Word（正文无标题、图片内嵌）。标题和摘要已复制到剪贴板，请分别粘贴到公众号对应栏位。"
-                          );
-                        } catch (err) {
-                          toast.error(err instanceof Error ? err.message : "Word 导出失败");
-                        } finally {
-                          setExportWechatDocxLoading(false);
-                        }
-                      }}
-                    >
-                      {exportWechatDocxLoading ? "导出中..." : "导出公众号 Word"}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={async () => {
-                        const text = [draftTitle, "", draftDigest, "", draftBody].join("\n");
-                        await navigator.clipboard.writeText(text);
-                        toast.success("标题+摘要+正文已复制");
-                      }}
-                    >
-                      复制图文
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        const content = buildArticleMarkdown({
-                          title: draftTitle,
-                          digest: draftDigest,
-                          body: draftBody,
-                          includeTitle: false,
-                        });
-                        const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
-                        const a = document.createElement("a");
-                        a.href = URL.createObjectURL(blob);
-                        a.download = "wechat-article-body.md";
-                        a.click();
-                        URL.revokeObjectURL(a.href);
-                        toast.success("已导出 Markdown（不含标题，摘要保留为引用块）");
-                      }}
-                    >
-                      导出 Markdown
-                    </Button>
-                    <Button
-                      variant="outline"
-                      disabled={exportBundleLoading || !draftBody.trim()}
-                      onClick={async () => {
-                        setExportBundleLoading(true);
-                        try {
-                          const { blob, fileName } = await buildMarkdownZipBundle({
-                            title: draftTitle,
-                            digest: draftDigest,
-                            body: draftBody,
-                          });
-                          const a = document.createElement("a");
-                          a.href = URL.createObjectURL(blob);
-                          a.download = fileName;
-                          a.click();
-                          URL.revokeObjectURL(a.href);
-                          toast.success(
-                            exportableImages.local > 0
-                              ? `已导出 Markdown 包（含 ${exportableImages.local} 张本地图）`
-                              : "已导出 Markdown 包（暂无本地图，请先插入或替换占位链接）"
-                          );
-                        } catch (err) {
-                          toast.error(err instanceof Error ? err.message : "导出失败");
-                        } finally {
-                          setExportBundleLoading(false);
-                        }
-                      }}
-                    >
-                      {exportBundleLoading ? "打包中..." : "导出 Markdown 包"}
-                    </Button>
                   </div>
-                  <p className="text-xs text-slate-500">
-                    <strong className="font-medium text-slate-700">推荐：</strong>
-                    用「导出公众号 Word」→ 在微信后台「文档导入」上传该 docx（单文件、图片已内嵌）。
-                    标题/摘要会自动复制，分别填到标题栏和摘要栏。表格已居中、字号 10pt、加粗为 Word 原生粗体。
-                    Markdown 包适合本地备份；占位图需先「插入本地图片」再导出。
-                    {exportableImages.placeholder > 0
-                      ? ` 当前还有 ${exportableImages.placeholder} 处待传图占位。`
-                      : null}
-                  </p>
+
+                  <FactDiffPanel
+                    report={factDiffReport}
+                    acknowledged={factDiffAcknowledged}
+                    onAcknowledge={() => {
+                      setFactDiffAcknowledged(true);
+                      if (activeContent && factDiffReport) {
+                        persistDraft(
+                          {
+                            id: activeContent.id,
+                            topicId: activeTopicId,
+                            lastFactDiff: toFactSnapshot(
+                              factDiffReport,
+                              new Date().toISOString()
+                            ),
+                          },
+                          "user_edit"
+                        );
+                      }
+                      toast.success("已确认事实 Diff，可标记待发布");
+                    }}
+                  />
+
+                  <WechatPublishPanel
+                    title={draftTitle}
+                    digest={draftDigest}
+                    body={draftBody}
+                    reviewScore={latestReview?.score}
+                    exportableLocalImages={exportableImages.local}
+                    placeholderImages={exportableImages.placeholder}
+                    factDiff={factDiffReport}
+                    factDiffAcknowledged={factDiffAcknowledged}
+                  />
 
                   {latestReview ? (
                     <div className="rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm">
@@ -1193,6 +1196,23 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
               ) : null}
             </CardContent>
           </Card>
+          </div>
+
+          <div className={activePlatform === "xiaohongshu" ? "block" : "hidden"}>
+            <XiaohongshuEditor
+              key={activeTopicId}
+              sourceContent={sourceContentDraft}
+              content={xiaohongshuContent}
+              latestReview={latestXiaohongshuReview}
+              publishVoice={publishVoice}
+              conversionRequestId={xiaohongshuConversionRequestId}
+              onSave={saveXiaohongshuContent}
+              onReviewSaved={addReview}
+              onBackToWechat={() => setActivePlatform("wechat")}
+              onConversionSuccess={() => setActivePlatform("xiaohongshu")}
+              onConversionSettled={() => setXiaohongshuConversionPending(false)}
+            />
+          </div>
         </div>
       </div>
 
@@ -1243,64 +1263,35 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
       </Dialog>
 
       <IllustrationSuggestionsDialog
-        open={illustrationDialogOpen}
-        onOpenChange={setIllustrationDialogOpen}
-        loading={illustrationLoading}
-        summary={illustrationSummary}
-        suggestions={illustrationSuggestions}
+        open={media.illustrationDialogOpen}
+        onOpenChange={media.setIllustrationDialogOpen}
+        loading={media.illustrationLoading}
+        summary={media.illustrationSummary}
+        suggestions={media.illustrationSuggestions}
         insertedIds={insertedIds}
         onInsert={insertSuggestion}
-        onRegenerate={() => void analyzeIllustrations({ force: true })}
+        onRegenerate={() => void media.analyzeIllustrations({ force: true })}
       />
 
       <CoverSuggestionsDialog
-        open={coverDialogOpen}
-        onOpenChange={setCoverDialogOpen}
-        loading={coverLoading}
-        summary={coverSummary}
-        variants={coverVariants}
+        open={media.coverDialogOpen}
+        onOpenChange={media.setCoverDialogOpen}
+        loading={media.coverLoading}
+        summary={media.coverSummary}
+        variants={media.coverVariants}
         onApplyOverlay={setDraftCover}
-        onRegenerate={() => void analyzeCover({ force: true })}
+        onVariantChange={media.updateCoverVariant}
+        onRegenerate={() => void media.analyzeCover({ force: true })}
       />
 
-      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>导入 Markdown 草稿</DialogTitle>
-            <DialogDescription>
-              支持 <code># 标题</code>、<code>&gt; 摘要</code> 与正文。导入后标记为「已有草稿」，并保存原始快照供「恢复原始草稿」。
-            </DialogDescription>
-          </DialogHeader>
-          <Textarea
-            value={importRaw}
-            onChange={(e) => setImportRaw(e.target.value)}
-            rows={14}
-            placeholder={"# 文章标题\n\n> 一两句摘要\n\n正文..."}
-            className="font-mono text-sm"
-          />
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".md,.markdown,.txt"
-            className="hidden"
-            onChange={async (event) => {
-              const file = event.target.files?.[0];
-              if (!file) return;
-              const text = await file.text();
-              setImportRaw(text);
-              event.target.value = "";
-            }}
-          />
-          <DialogFooter className="gap-2 sm:justify-between">
-            <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()}>
-              选择 .md 文件
-            </Button>
-            <Button type="button" onClick={importDraft}>
-              导入并保存
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <MarkdownImportDialog
+        open={importDialogOpen}
+        onOpenChange={setImportDialogOpen}
+        importRaw={importRaw}
+        onImportRawChange={setImportRaw}
+        onImportText={importDraft}
+        onImportProject={applyImportedProject}
+      />
     </AppShell>
   );
 }

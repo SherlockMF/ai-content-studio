@@ -128,3 +128,16 @@
     @apply font-sans;
   }
 }
+
+/* 公众号预览：抵消 Tailwind Preflight 对标题字重的重置，样式以 inline 为准 */
+.wechat-preview h1,
+.wechat-preview h2,
+.wechat-preview h3,
+.wechat-preview h4,
+.wechat-preview strong,
+.wechat-preview b {
+  font-weight: bold;
+}
+.wechat-preview a {
+  color: #576b95;
+}

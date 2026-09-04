@@ -89,8 +89,10 @@ export interface XiaohongshuDraftData {
 
 两种风格必须有可感知差异：
 
-- `professional`：约 600～900 字，保留专业词汇和论证链，使用清晰小标题、短段落和少量 emoji。
-- `social`：约 400～700 字，加强开场钩子、节奏、情绪与互动感，可增加 emoji，但仍受事实基线约束。
+- `professional`：约 1200～1600 字，保留专业词汇和论证链，使用清晰小标题、短段落和少量 emoji。
+- `social`：约 900～1300 字，加强开场钩子、节奏、情绪与互动感，可增加 emoji，但仍受事实基线约束。
+
+> 2026-09-04 更新：转换改为先抽大纲再写稿，见 `2026-09-04-xiaohongshu-two-pass-conversion-design.md`。
 
 图片规划规则：
 

@@ -10,7 +10,14 @@ import {
   DEMO_VERSIONS,
 } from "@/lib/mock-data";
 import { allocateNextFriday } from "@/lib/schedule";
-import { inferContentSource, maybeRestoreSeedContent, syncBuiltinSeedArticles, CURRENT_SEED_FINGERPRINT } from "@/lib/seed/restore";
+import { normalizeXiaohongshuContent } from "@/lib/xiaohongshu/content";
+import {
+  inferContentSource,
+  maybeRestoreSeedContent,
+  restoreOrphanedXiaohongshuFromVersions,
+  syncBuiltinSeedArticles,
+  CURRENT_SEED_FINGERPRINT,
+} from "@/lib/seed/restore";
 import {
   ContentItem,
   ContentReview,
@@ -40,6 +47,7 @@ interface AppStoreValue {
   scheduleContent: (item: Omit<ContentItem, "scheduledAt"> & { scheduledAt?: string | null }) => string;
   addVersion: (version: ContentVersion) => void;
   setReviews: (value: ContentReview[]) => void;
+  addReview: (review: ContentReview) => void;
   replaceState: (value: AppState) => void;
 }
 
@@ -80,11 +88,21 @@ function migrateState(parsed: Partial<AppState>): AppState {
       score: typeof review.score === "number" ? review.score : 0,
     })),
     contentItems: base.contentItems.map((item) =>
-      maybeRestoreSeedContent({
-        ...item,
-        source: inferContentSource(item),
-      })
+      normalizeXiaohongshuContent(
+        maybeRestoreSeedContent({
+          ...item,
+          source: inferContentSource(item),
+        })
+      )
     ),
+  };
+
+  state = {
+    ...state,
+    contentItems: restoreOrphanedXiaohongshuFromVersions({
+      contentItems: state.contentItems,
+      versions: state.versions ?? [],
+    }).map(normalizeXiaohongshuContent),
   };
 
   if ((parsed.seedFingerprint ?? "") !== CURRENT_SEED_FINGERPRINT) {
@@ -93,6 +111,13 @@ function migrateState(parsed: Partial<AppState>): AppState {
       ...state,
       ...synced,
       seedFingerprint: CURRENT_SEED_FINGERPRINT,
+    };
+    state = {
+      ...state,
+      contentItems: restoreOrphanedXiaohongshuFromVersions({
+        contentItems: state.contentItems,
+        versions: state.versions ?? [],
+      }).map(normalizeXiaohongshuContent),
     };
   }
 
@@ -194,6 +219,11 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       addVersion: (version) =>
         setState((prev) => ({ ...prev, versions: [version, ...prev.versions] })),
       setReviews: (reviews) => setState((prev) => ({ ...prev, reviews })),
+      addReview: (review) =>
+        setState((prev) => ({
+          ...prev,
+          reviews: [review, ...prev.reviews.filter((item) => item.id !== review.id)],
+        })),
       replaceState: (value) => setState(value),
     }),
     [state, storeHydrated]

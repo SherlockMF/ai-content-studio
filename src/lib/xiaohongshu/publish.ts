@@ -1,0 +1,196 @@
+import type {
+  ContentReview,
+  XiaohongshuDraftData,
+  XiaohongshuImagePrompt,
+  XiaohongshuTone,
+  XiaohongshuVariant,
+} from "@/types/domain";
+import {
+  XIAOHONGSHU_BODY_MAX_CHARS,
+  XIAOHONGSHU_TITLE_MAX_CHARS,
+  countXiaohongshuChars,
+} from "@/lib/xiaohongshu/limits";
+import { extractHashtagsFromText } from "@/lib/xiaohongshu/note-body";
+
+export interface XiaohongshuPublishCheck {
+  id: "title" | "body" | "hashtags" | "images" | "rendered-images" | "review";
+  label: string;
+  ok: boolean;
+  hint?: string;
+  blocking: boolean;
+}
+
+const TONE_LABELS: Record<XiaohongshuTone, string> = {
+  professional: "专业轻表达",
+  social: "强氛围版",
+};
+
+const ROLE_LABELS: Record<XiaohongshuImagePrompt["role"], string> = {
+  cover: "封面",
+  content: "正文",
+  ending: "收尾",
+};
+
+function isImagePlanComplete(imagePlan: XiaohongshuImagePrompt[]): boolean {
+  if (imagePlan.length < 5 || imagePlan.length > 8) return false;
+
+  return imagePlan.every((image, position) => {
+    const expectedRole =
+      position === 0 ? "cover" : position === imagePlan.length - 1 ? "ending" : "content";
+
+    return (
+      image.index === position + 1 &&
+      image.role === expectedRole &&
+      image.objective.trim().length > 0 &&
+      image.overlayText.trim().length > 0 &&
+      image.composition.trim().length > 0 &&
+      image.prompt.trim().length > 0
+    );
+  });
+}
+
+export function buildXiaohongshuPublishChecks(input: {
+  data: XiaohongshuDraftData;
+  tone: XiaohongshuTone;
+  review?: ContentReview;
+}): XiaohongshuPublishCheck[] {
+  const { data, tone, review } = input;
+  const variant = data.variants[tone];
+  const bodyTags = extractHashtagsFromText(variant.body);
+  const hashtagsOk = bodyTags.length >= 5 && bodyTags.length <= 8;
+  const reviewOk = !review?.issues.some((issue) => issue.severity === "high");
+  const titleChars = countXiaohongshuChars(variant.title.trim());
+  const bodyChars = countXiaohongshuChars(variant.body.trim());
+  const titleOk = titleChars > 0 && titleChars <= XIAOHONGSHU_TITLE_MAX_CHARS;
+  const bodyOk = bodyChars > 0 && bodyChars <= XIAOHONGSHU_BODY_MAX_CHARS;
+
+  return [
+    {
+      id: "title",
+      label: `标题完整（≤${XIAOHONGSHU_TITLE_MAX_CHARS} 字）`,
+      ok: titleOk,
+      hint: titleOk
+        ? undefined
+        : titleChars === 0
+          ? "请填写当前版本标题"
+          : `标题已超 ${XIAOHONGSHU_TITLE_MAX_CHARS} 字（当前 ${titleChars}）`,
+      blocking: true,
+    },
+    {
+      id: "body",
+      label: `正文完整（≤${XIAOHONGSHU_BODY_MAX_CHARS} 字，含话题）`,
+      ok: bodyOk,
+      hint: bodyOk
+        ? undefined
+        : bodyChars === 0
+          ? "请填写当前版本正文"
+          : `正文已超 ${XIAOHONGSHU_BODY_MAX_CHARS} 字（当前 ${bodyChars}）`,
+      blocking: true,
+    },
+    {
+      id: "hashtags",
+      label: "正文含 5～8 个 #话题",
+      ok: hashtagsOk,
+      hint: hashtagsOk
+        ? undefined
+        : `正文末尾需要带 # 的话题（当前 ${bodyTags.length} 个）`,
+      blocking: true,
+    },
+    {
+      id: "images",
+      label: "图片规划完整",
+      ok: isImagePlanComplete(data.imagePlan),
+      hint: isImagePlanComplete(data.imagePlan)
+        ? undefined
+        : "需要 5～8 张连续图片，以封面开始、收尾结束，并补全每张提示词",
+      blocking: true,
+    },
+    {
+      id: "rendered-images",
+      label: "配图已生成",
+      ok: data.imagePlan.length > 0 && data.imagePlan.every((image) => Boolean(image.imageUrl)),
+      hint: data.imagePlan.every((image) => Boolean(image.imageUrl))
+        ? undefined
+        : "还有配图未生成，可点「生成配图」补全",
+      blocking: false,
+    },
+    {
+      id: "review",
+      label: "质检无必须修改项",
+      ok: reviewOk,
+      hint: reviewOk ? undefined : "最近一次质检仍有必须修改的问题",
+      blocking: !reviewOk,
+    },
+  ];
+}
+
+/** 粘贴到小红书正文区：只复制正文（已含 #话题） */
+export function buildXiaohongshuBodyCopyText(variant: XiaohongshuVariant): string {
+  return variant.body.trim();
+}
+
+/** 完整笔记：标题 + 正文（正文已含收尾与 #话题） */
+export function buildXiaohongshuNoteText(variant: XiaohongshuVariant): string {
+  return [variant.title.trim(), variant.body.trim()].filter(Boolean).join("\n\n");
+}
+
+function buildPromptBlock(image: XiaohongshuImagePrompt): string {
+  return [
+    `图 ${image.index} · ${ROLE_LABELS[image.role]}`,
+    `画面职责：${image.objective.trim()}`,
+    `图中文字：${image.overlayText.trim()}`,
+    `构图：${image.composition.trim()}`,
+    `完整提示词：${image.prompt.trim()}`,
+  ].join("\n");
+}
+
+export function buildXiaohongshuPromptText(
+  data: Pick<XiaohongshuDraftData, "visualDirection" | "imagePlan">
+): string {
+  return [
+    `视觉方向：${data.visualDirection.trim()}`,
+    ...data.imagePlan.map(buildPromptBlock),
+  ].join("\n\n");
+}
+
+export function buildXiaohongshuPublishMarkdown(
+  data: XiaohongshuDraftData,
+  tone: XiaohongshuTone,
+  sourceTitle?: string
+): string {
+  const backupTone: XiaohongshuTone = tone === "professional" ? "social" : "professional";
+  const imageSections = data.imagePlan.map((image) =>
+    [
+      `### 图 ${image.index} · ${ROLE_LABELS[image.role]}`,
+      "",
+      `- 画面职责：${image.objective.trim()}`,
+      `- 图中文字：${image.overlayText.trim()}`,
+      `- 构图：${image.composition.trim()}`,
+      image.imageUrl ? `- 配图：${image.imageUrl}` : "- 配图：未生成",
+      `- 完整提示词：${image.prompt.trim()}`,
+    ].join("\n")
+  );
+
+  return [
+    "# 小红书发布包",
+    "",
+    `- 来源稿件：${sourceTitle?.trim() || "来源稿件不可用"}`,
+    `- 当前风格：${TONE_LABELS[tone]}`,
+    "",
+    `## 当前发布版本：${TONE_LABELS[tone]}`,
+    "",
+    buildXiaohongshuNoteText(data.variants[tone]),
+    "",
+    `## 备选版本：${TONE_LABELS[backupTone]}`,
+    "",
+    buildXiaohongshuNoteText(data.variants[backupTone]),
+    "",
+    "## 图片规划",
+    "",
+    `**视觉方向：** ${data.visualDirection.trim()}`,
+    "",
+    ...imageSections.flatMap((section) => [section, ""]),
+  ]
+    .join("\n")
+    .trimEnd();
+}

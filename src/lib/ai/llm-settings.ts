@@ -28,7 +28,13 @@ export const LLM_MODEL_OPTIONS: Array<{
 ];
 
 export function normalizeLLMSettings(input?: Partial<LLMClientSettings> | null): LLMClientSettings {
-  const merged = { ...DEFAULT_LLM_SETTINGS, ...(input ?? {}) };
+  const raw = input ?? {};
+  const merged: LLMClientSettings = {
+    ...DEFAULT_LLM_SETTINGS,
+    ...Object.fromEntries(
+      Object.entries(raw).filter(([, value]) => value !== undefined && value !== null)
+    ),
+  };
   // 清理历史 mock 配置
   const legacy = merged as { model?: string; provider?: string };
   if (legacy.model === "mock" || legacy.provider === "mock") {
@@ -39,6 +45,12 @@ export function normalizeLLMSettings(input?: Partial<LLMClientSettings> | null):
     merged.model = "deepseek-v4-flash";
   }
   merged.provider = "deepseek";
+  if (typeof merged.apiKey !== "string") {
+    merged.apiKey = DEFAULT_LLM_SETTINGS.apiKey;
+  }
+  if (typeof merged.baseUrl !== "string" || !merged.baseUrl.trim()) {
+    merged.baseUrl = DEFAULT_LLM_SETTINGS.baseUrl;
+  }
   return merged;
 }
 

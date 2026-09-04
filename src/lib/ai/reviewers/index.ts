@@ -3,6 +3,8 @@ import { LLMClientSettings } from "@/lib/ai/llm-settings";
 import { SYSTEM_PROMPT } from "@/lib/ai/prompts";
 import { buildSupplementaryNotesPrompt } from "@/lib/content-supplementary-notes";
 import { reviewOutputSchema } from "@/lib/ai/schemas";
+import { buildXiaohongshuReviewPrompt } from "@/lib/ai/xiaohongshu-prompt";
+import type { XiaohongshuImagePrompt } from "@/types/domain";
 
 export async function reviewContent(input: {
   title: string;
@@ -34,6 +36,28 @@ severity：high=发布前必须改，medium=建议改，low=可选优化
 正文：
 ${input.body}`,
       },
+    ],
+    reviewOutputSchema
+  );
+}
+
+export async function reviewXiaohongshuContent(input: {
+  sourceBody: string;
+  title: string;
+  body: string;
+  cta: string;
+  hashtags: string[];
+  visualDirection: string;
+  imagePlan: XiaohongshuImagePrompt[];
+  targetAudience: string;
+  llm?: Partial<LLMClientSettings> | null;
+}) {
+  const provider = getLLMProvider(input.llm);
+
+  return provider.generateStructuredOutput(
+    [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: buildXiaohongshuReviewPrompt(input) },
     ],
     reviewOutputSchema
   );

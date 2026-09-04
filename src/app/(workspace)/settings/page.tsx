@@ -16,6 +16,15 @@ import {
   saveLLMSettings,
 } from "@/lib/ai/llm-settings";
 import {
+  DEFAULT_IMAGE_GEN_SETTINGS,
+  IMAGE_GEN_MODEL_OPTIONS,
+  ImageGenModelId,
+  ImageGenSettings,
+  loadImageGenSettings,
+  normalizeImageGenSettings,
+  saveImageGenSettings,
+} from "@/lib/ai/image-settings";
+import {
   PUBLISH_VOICE_PRESETS,
   applyPublishVoicePreset,
   findPublishVoicePreset,
@@ -27,8 +36,10 @@ export default function SettingsPage() {
   const { publishVoice, updatePublishVoice, replaceState, ...rest } = useAppStore();
   const [loading, setLoading] = useState<null | "push" | "pull">(null);
   const [llmSettings, setLlmSettings] = useState<LLMClientSettings>(DEFAULT_LLM_SETTINGS);
+  const [imageSettings, setImageSettings] = useState<ImageGenSettings>(DEFAULT_IMAGE_GEN_SETTINGS);
   const [llmHydrated, setLlmHydrated] = useState(false);
   const [showKey, setShowKey] = useState(false);
+  const [showImageKey, setShowImageKey] = useState(false);
   const [selectedPresetId, setSelectedPresetId] = useState(
     () => findPublishVoicePreset(publishVoice).id
   );
@@ -36,6 +47,7 @@ export default function SettingsPage() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage hydration
     setLlmSettings(loadLLMSettings());
+    setImageSettings(loadImageGenSettings());
     setLlmHydrated(true);
   }, []);
   const selectedPreset =
@@ -51,6 +63,10 @@ export default function SettingsPage() {
         provider: option?.provider ?? prev.provider,
       })
     );
+  };
+
+  const onImageModelChange = (model: ImageGenModelId) => {
+    setImageSettings((prev) => normalizeImageGenSettings({ ...prev, model }));
   };
 
   return (
@@ -108,7 +124,8 @@ export default function SettingsPage() {
                 autoComplete="off"
               />
               <p className="text-xs text-slate-500">
-                Key 仅保存在本机浏览器 localStorage，不会写入 Supabase 快照。调用选题/稿件/质检/去 AI 味时会发给本站服务端用于请求模型。
+                优先读取项目根目录 `.env.local` 的 `DEEPSEEK_API_KEY`（改后需重启开发服务）。未配置本地文件时，才使用本页保存的 Key（仅本机
+                localStorage，不会写入 Supabase）。调用选题/稿件/质检/去 AI 味时会发给本站服务端用于请求模型。
               </p>
             </div>
             <Button
@@ -126,6 +143,83 @@ export default function SettingsPage() {
               }}
             >
               保存模型设置
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card id="image-gen">
+          <CardHeader>
+            <CardTitle>生图模型</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-sm">模型</label>
+              <select
+                className="h-9 w-full rounded-lg border px-3 text-sm"
+                value={imageSettings.model}
+                disabled={!llmHydrated}
+                onChange={(e) => onImageModelChange(e.target.value as ImageGenModelId)}
+              >
+                {IMAGE_GEN_MODEL_OPTIONS.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-500">
+                推荐 Qwen-Image 3.0（文字排版更适合图文笔记）。免费额度文生图目前主要是 wanx-v1，效果偏氛围时请用 Qwen。
+              </p>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm">API Base URL</label>
+              <Input
+                value={imageSettings.baseUrl}
+                onChange={(e) =>
+                  setImageSettings((prev) => ({ ...prev, baseUrl: e.target.value }))
+                }
+                placeholder="https://dashscope.aliyuncs.com"
+              />
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="text-sm">DashScope API Key</label>
+                <button
+                  type="button"
+                  className="text-xs text-slate-500 underline"
+                  onClick={() => setShowImageKey((v) => !v)}
+                >
+                  {showImageKey ? "隐藏" : "显示"}
+                </button>
+              </div>
+              <Input
+                type={showImageKey ? "text" : "password"}
+                value={imageSettings.apiKey}
+                onChange={(e) =>
+                  setImageSettings((prev) => ({ ...prev, apiKey: e.target.value }))
+                }
+                placeholder="在此填写 DashScope API Key"
+                autoComplete="off"
+              />
+              <p className="text-xs text-slate-500">
+                优先读取 `.env.local` 的 `DASHSCOPE_API_KEY`（改后需重启开发服务）。未配置时使用本页
+                Key（仅本机 localStorage，不进 Supabase）。
+              </p>
+            </div>
+            <Button
+              type="button"
+              className="w-fit"
+              onClick={() => {
+                const next = normalizeImageGenSettings(imageSettings);
+                if (!next.apiKey.trim()) {
+                  toast.error("请填写 DashScope API Key");
+                  return;
+                }
+                saveImageGenSettings(next);
+                setImageSettings(next);
+                toast.success(`已保存生图模型：${next.model}`);
+              }}
+            >
+              保存生图设置
             </Button>
           </CardContent>
         </Card>
@@ -179,7 +273,7 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent className="space-y-2 text-sm text-slate-600">
             <p>1. 业务数据默认保存在本机；可选用 Supabase 快照同步（不含 API Key）。</p>
-            <p>2. 模型调用使用本页 DeepSeek 配置；也可用环境变量 DEEPSEEK_API_KEY 兜底。已取消 Mock。</p>
+            <p>2. 模型调用优先使用 `.env.local` 的 DEEPSEEK_API_KEY；未配置时才用本页浏览器 Key。已取消 Mock。</p>
             <p>3. 选题页内嵌热点研究 → 三方向 → 出稿；人设来自设置页预设。</p>
             <div className="flex gap-2 pt-2">
               <Button

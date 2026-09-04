@@ -12,6 +12,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { withLLMPayload } from "@/lib/ai/llm-settings";
+import { coverPromptRefineOutputSchema } from "@/lib/ai/schemas";
+import { hasText } from "@/lib/has-text";
 import { CoverImageVariant } from "@/lib/illustrations/cover";
 
 interface CoverSuggestionsDialogProps {
@@ -21,6 +24,14 @@ interface CoverSuggestionsDialogProps {
   summary?: string;
   variants: CoverImageVariant[];
   onApplyOverlay: (text: string) => void;
+  /** 预留：一键生图写入封面（当前 UI 未启用，API 仍保留） */
+  onApplyCoverImage?: (input: {
+    url: string;
+    overlayText: string;
+    gptPrompt: string;
+    altText: string;
+  }) => void;
+  onVariantChange: (id: string, patch: Partial<CoverImageVariant>) => void;
   onRegenerate?: () => void;
 }
 
@@ -31,6 +42,7 @@ export function CoverSuggestionsDialog({
   summary,
   variants,
   onApplyOverlay,
+  onVariantChange,
   onRegenerate,
 }: CoverSuggestionsDialogProps) {
   return (
@@ -39,8 +51,7 @@ export function CoverSuggestionsDialog({
         <DialogHeader>
           <DialogTitle>封面图提示词</DialogTitle>
           <DialogDescription>
-            公众号头条封面 2.35:1。复制提示词到 ChatGPT 生图；需要原 logo 时，在 GPT 对话里自行附上
-            Parvis / Codex / Cola / WorkBuddy 四张 PNG 即可。
+            公众号头条封面 2.35:1。复制提示词到 ChatGPT 生图。可在每套方案下填写修改建议并优化后再复制。
           </DialogDescription>
         </DialogHeader>
 
@@ -49,7 +60,12 @@ export function CoverSuggestionsDialog({
             <div className="space-y-4">
               <p className="text-sm text-slate-500">正在重新生成封面图方案…</p>
               {variants.map((item) => (
-                <CoverVariantCard key={item.id} item={item} onApplyOverlay={onApplyOverlay} />
+                <CoverVariantCard
+                  key={item.id}
+                  item={item}
+                  onApplyOverlay={onApplyOverlay}
+                  onVariantChange={onVariantChange}
+                />
               ))}
             </div>
           ) : (
@@ -61,7 +77,12 @@ export function CoverSuggestionsDialog({
           <div className="space-y-4">
             {summary ? <p className="text-sm text-slate-600">{summary}</p> : null}
             {variants.map((item) => (
-              <CoverVariantCard key={item.id} item={item} onApplyOverlay={onApplyOverlay} />
+              <CoverVariantCard
+                key={item.id}
+                item={item}
+                onApplyOverlay={onApplyOverlay}
+                onVariantChange={onVariantChange}
+              />
             ))}
             {onRegenerate ? (
               <div className="flex justify-end border-t pt-3">
@@ -80,15 +101,55 @@ export function CoverSuggestionsDialog({
 function CoverVariantCard({
   item,
   onApplyOverlay,
+  onVariantChange,
 }: {
   item: CoverImageVariant;
   onApplyOverlay: (text: string) => void;
+  onVariantChange: (id: string, patch: Partial<CoverImageVariant>) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [suggestion, setSuggestion] = useState("");
+  const [refining, setRefining] = useState(false);
 
   const copyPrompt = async () => {
     await navigator.clipboard.writeText(item.gptPrompt);
     toast.success("已复制提示词");
+  };
+
+  const refinePrompt = async () => {
+    if (!hasText(suggestion) || refining) return;
+    setRefining(true);
+    try {
+      const response = await fetch("/api/ai/cover/refine", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          withLLMPayload({
+            title: undefined,
+            styleLabel: item.styleLabel,
+            overlayText: item.overlayText,
+            gptPrompt: item.gptPrompt,
+            suggestion: suggestion.trim(),
+          })
+        ),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(
+          typeof payload.message === "string" ? payload.message : "优化失败"
+        );
+      }
+      const refined = coverPromptRefineOutputSchema.parse(payload);
+      onVariantChange(item.id, {
+        gptPrompt: refined.gptPrompt,
+        ...(refined.overlayText ? { overlayText: refined.overlayText } : {}),
+      });
+      toast.success("已按建议优化提示词");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "优化失败");
+    } finally {
+      setRefining(false);
+    }
   };
 
   return (
@@ -105,7 +166,7 @@ function CoverVariantCard({
 
       <div className="space-y-1">
         <div className="flex items-center justify-between gap-2">
-          <span className="text-xs font-medium text-slate-700">GPT 封面图提示词</span>
+          <span className="text-xs font-medium text-slate-700">封面图提示词</span>
           <Button type="button" variant="outline" size="sm" onClick={() => void copyPrompt()}>
             复制提示词
           </Button>
@@ -123,6 +184,30 @@ function CoverVariantCard({
         >
           {expanded ? "收起" : "展开全文"}
         </button>
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-xs font-medium text-slate-700" htmlFor={`cover-refine-${item.id}`}>
+          修改建议
+        </label>
+        <Textarea
+          id={`cover-refine-${item.id}`}
+          value={suggestion}
+          onChange={(event) => setSuggestion(event.target.value)}
+          placeholder="例如：背景改成深蓝、主图标换成电路板、标题字再大一点…"
+          rows={3}
+          className="text-sm"
+          disabled={refining}
+        />
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          disabled={!hasText(suggestion) || refining}
+          onClick={() => void refinePrompt()}
+        >
+          {refining ? "优化中…" : "根据建议优化"}
+        </Button>
       </div>
 
       <div className="flex flex-wrap gap-2">
