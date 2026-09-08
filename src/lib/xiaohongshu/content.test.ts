@@ -21,6 +21,25 @@ test("accepts a complete result and rejects invalid image order", () => {
   assert.equal(xiaohongshuOutputSchema.safeParse(invalid).success, false);
 });
 
+test("schema preserves trailing hashtags in oversized model output without a separate hashtags field", () => {
+  const hashtags = ["AI工作流", "组织进化", "职场成长", "效率工具", "知识管理"];
+  const tagLine = hashtags.map((tag) => `#${tag}`).join(" ");
+  const result = xiaohongshuOutputSchema.parse({
+    ...validResult,
+    variants: {
+      ...validResult.variants,
+      professional: {
+        title: "短标题",
+        body: "内容🚀".repeat(400) + `\n\n${tagLine}`,
+      },
+    },
+  });
+  assert.ok(Array.from(result.variants.professional.body).length <= 1000);
+  assert.ok(result.variants.professional.body.endsWith(tagLine));
+  assert.deepEqual(result.variants.professional.hashtags, hashtags);
+  assert.deepEqual(xiaohongshuOutputSchema.parse(result), result);
+});
+
 test("rejects Xiaohongshu results outside image and hashtag constraints", () => {
   const contentImage = validResult.imagePlan[1];
   const endingImage = validResult.imagePlan.at(-1)!;

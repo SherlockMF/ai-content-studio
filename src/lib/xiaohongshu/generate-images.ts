@@ -1,5 +1,5 @@
 import { generateArticleImage } from "@/lib/ai/image/client";
-import { XIAOHONGSHU_FIXED_VISUAL_DIRECTION } from "@/lib/ai/xiaohongshu-prompt";
+import { XIAOHONGSHU_FIXED_VISUAL_DIRECTION, XIAOHONGSHU_NO_PAGE_BADGES } from "@/lib/ai/xiaohongshu-prompt";
 import { BLINDTEST_XHS_ICON_PROMPT } from "@/lib/illustrations/cover-prompt-style";
 import type { XiaohongshuImagePrompt } from "@/types/domain";
 
@@ -27,6 +27,7 @@ export function buildXiaohongshuRenderPrompt(
     "严禁：抽象几何拼贴、文具静物摄影、笔记本样机、名片堆叠、空洞 UI mockup、无文字壁纸、科幻光效、看不清字、把 Cola 画成饮料罐。",
     "竖版约 3:4，安全边距，手机滑动笔记多图观感。",
     brandIcons,
+    XIAOHONGSHU_NO_PAGE_BADGES,
   ]
     .filter(Boolean)
     .join("\n");

@@ -12,6 +12,8 @@ import { withLLMPayload } from "@/lib/ai/llm-settings";
 import { DEFAULT_SECTIONS } from "@/lib/mock-data";
 import { useAppStore } from "@/lib/store/app-store";
 import { HotspotItem, HotspotSnapshot } from "@/lib/hotspots/types";
+import { generateWechatMedia } from "@/lib/illustrations/wechat-media-client";
+import type { ContentItem } from "@/types/domain";
 import { ContentSection, KnowledgeReference, Topic, TopicDirection } from "@/types/domain";
 import { cn } from "@/lib/utils";
 
@@ -189,7 +191,7 @@ export function TopicWorkbench() {
 
       addTopics([topic]);
       const contentId = `content_${Date.now()}`;
-      upsertContent({
+      let generatedContent: ContentItem = {
         id: contentId,
         workspaceId: "ws_demo",
         topicId,
@@ -200,12 +202,16 @@ export function TopicWorkbench() {
         coverCopy: result.coverCopy,
         body: result.body,
         cta: result.cta,
+        coverPromptPack: result.coverVariants?.length
+          ? { summary: result.coverSummary, variants: result.coverVariants }
+          : undefined,
         status: "AI 草稿",
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         scheduledAt: null,
         publishedAt: null,
-      });
+      };
+      upsertContent(generatedContent);
       addVersion({
         id: `version_${Date.now()}`,
         contentItemId: contentId,
@@ -215,7 +221,20 @@ export function TopicWorkbench() {
         changeSource: "ai_generate",
         createdAt: new Date().toISOString(),
       });
-      toast.success("完整图文已生成，正在跳转稿件页");
+      toast.message("文案已保存，正在生成封面和正文配图…");
+      try {
+        const mediaResult = await generateWechatMedia({
+          title: result.title, body: result.body,
+          onUpdate: (body) => {
+            generatedContent = { ...generatedContent, body, updatedAt: new Date().toISOString() };
+            upsertContent(generatedContent);
+          },
+        });
+        if (mediaResult.failures.length) toast.error(`文案已保存，${mediaResult.failures.length} 张配图未完成，可在稿件页补齐`);
+        else toast.success("图文和配图已生成，正在跳转稿件页");
+      } catch (error) {
+        toast.error(`文案已保存，配图未完成：${error instanceof Error ? error.message : "生成失败"}`);
+      }
       router.push(`/content?topicId=${topicId}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "图文生成失败");

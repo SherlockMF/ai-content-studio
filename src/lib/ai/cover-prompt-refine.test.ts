@@ -27,5 +27,6 @@ test("refine prompt includes original prompt and user suggestion", () => {
   assert.match(prompt, /原始提示词内容/);
   assert.match(prompt, /把大脑图标改成电路板/);
   assert.match(prompt, /2\.35:1/);
+  assert.match(prompt, /1472×624/);
   assert.match(prompt, /概念插画封面/);
 });

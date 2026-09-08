@@ -49,3 +49,20 @@ test("foldXiaohongshuVariant does not duplicate tags already in body", () => {
   });
   assert.equal((folded.body.match(/#A/g) ?? []).length, 1);
 });
+
+for (const tagsInBody of [true, false]) {
+  test(`fold preserves complete hashtags when limiting a long body (inline=${tagsInBody})`, () => {
+    const hashtags = ["AI工作流", "组织进化", "职场成长", "效率工具", "知识管理"];
+    const tagLine = formatHashtagLine(hashtags);
+    const folded = foldXiaohongshuVariant({
+      title: "短标题",
+      body: "内容🚀".repeat(400) + (tagsInBody ? `\n\n${tagLine}` : ""),
+      cta: "",
+      hashtags: tagsInBody ? [] : hashtags,
+    });
+    assert.ok(Array.from(folded.body).length <= 1000);
+    assert.ok(folded.body.endsWith(tagLine));
+    assert.deepEqual(folded.hashtags, hashtags);
+    assert.deepEqual(foldXiaohongshuVariant(folded), folded);
+  });
+}

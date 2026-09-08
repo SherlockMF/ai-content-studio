@@ -16,7 +16,7 @@ import {
   XIAOHONGSHU_FIXED_VISUAL_DIRECTION,
   buildXiaohongshuReviewSignature,
 } from "@/lib/ai/xiaohongshu-prompt";
-import { CONTENT_STATUSES } from "@/lib/content-status";
+import { CONTENT_STATUSES, requiresPublishChecks, shouldStampPublishedAt } from "@/lib/content-status";
 import { hasText } from "@/lib/has-text";
 import { createXiaohongshuContent, normalizeXiaohongshuContent, saveXiaohongshuVariant } from "@/lib/xiaohongshu/content";
 import {
@@ -446,15 +446,16 @@ export function XiaohongshuEditor({
       tone,
       review: currentReview,
     }).some((check) => check.blocking && !check.ok);
-    if ((target === "待发布" || target === "已发布") && blocking) {
+    if (requiresPublishChecks(target) && blocking) {
       toast.error("发布检查未通过，不能标记为待发布/已发布");
       return;
     }
     const next: ContentItem = {
       ...draft,
       status: target,
-      publishedAt:
-        target === "已发布" ? draft.publishedAt ?? new Date().toISOString() : draft.publishedAt,
+      publishedAt: shouldStampPublishedAt(target)
+        ? draft.publishedAt ?? new Date().toISOString()
+        : draft.publishedAt,
       updatedAt: new Date().toISOString(),
     };
     draftRef.current = next;

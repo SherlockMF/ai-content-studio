@@ -3,8 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -12,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { buildWechatDocxBundle, buildWechatPublishClipboard } from "@/lib/export-wechat-docx";
+import { buildWechatPublishBundle, buildWechatPublishClipboard } from "@/lib/export-wechat-docx";
 import { buildArticleMarkdown, buildMarkdownZipBundle } from "@/lib/export-markdown-bundle";
 import {
   buildWechatPublishChecks,
@@ -48,8 +54,7 @@ export function WechatPublishPanel({
   const [previewHtml, setPreviewHtml] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
   const [copyLoading, setCopyLoading] = useState(false);
-  const [wordLoading, setWordLoading] = useState(false);
-  const [zipLoading, setZipLoading] = useState(false);
+  const [exportLoading, setExportLoading] = useState(false);
 
   const checks = useMemo(
     () =>
@@ -64,9 +69,13 @@ export function WechatPublishPanel({
     [title, digest, body, reviewScore, factDiff, factDiffAcknowledged]
   );
 
-  const allCriticalOk = checks
-    .filter((c) => c.id !== "digest" && c.id !== "review")
-    .every((c) => c.ok);
+  const imageCheck = checks.find((c) => c.id === "images");
+  const canCopyRichText =
+    Boolean(body.trim()) &&
+    checks
+      .filter((c) => c.id !== "digest" && c.id !== "review" && c.id !== "images")
+      .every((c) => c.ok) &&
+    placeholderImages === 0;
 
   const refreshPreview = useCallback(async () => {
     if (!body.trim()) {
@@ -102,15 +111,20 @@ export function WechatPublishPanel({
       return;
     }
     if (placeholderImages > 0) {
-      toast.error("仍有待替换占位图，请先插入本地图片");
+      toast.error(`还有 ${placeholderImages} 处待替换配图，请先插入本地图片`);
+      return;
+    }
+    const blocked = checks.find(
+      (c) => !c.ok && c.id !== "digest" && c.id !== "review" && c.id !== "images"
+    );
+    if (blocked) {
+      toast.error(blocked.hint || blocked.label);
       return;
     }
     setCopyLoading(true);
     try {
       await copyWechatRichText({ body, title, digest, theme: themeId });
-      toast.success(
-        "已复制公众号富文本。请到微信后台编辑器粘贴正文；标题/摘要说明在剪贴板纯文本部分。"
-      );
+      toast.success("已复制公众号富文本，到微信后台粘贴即可");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "复制失败");
     } finally {
@@ -120,13 +134,13 @@ export function WechatPublishPanel({
 
   const handleCopyMeta = async () => {
     await navigator.clipboard.writeText(buildWechatPublishClipboard({ title, digest }));
-    toast.success("标题与摘要说明已复制");
+    toast.success("标题与摘要已复制");
   };
 
   const handleExportWord = async () => {
-    setWordLoading(true);
+    setExportLoading(true);
     try {
-      const { blob, fileName, clipboardText } = await buildWechatDocxBundle({
+      const { blob, fileName, imageCount } = await buildWechatPublishBundle({
         title,
         digest,
         body,
@@ -136,17 +150,16 @@ export function WechatPublishPanel({
       a.download = fileName;
       a.click();
       URL.revokeObjectURL(a.href);
-      await navigator.clipboard.writeText(clipboardText);
-      toast.success("Word 已下载（备用）；标题/摘要已复制");
+      toast.success(`公众号发布包已下载：Word + ${imageCount} 张图片 + 标题和摘要`);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Word 导出失败");
+      toast.error(err instanceof Error ? err.message : "公众号发布包导出失败");
     } finally {
-      setWordLoading(false);
+      setExportLoading(false);
     }
   };
 
   const handleExportZip = async () => {
-    setZipLoading(true);
+    setExportLoading(true);
     try {
       const { blob, fileName } = await buildMarkdownZipBundle({
         title,
@@ -161,14 +174,25 @@ export function WechatPublishPanel({
       URL.revokeObjectURL(a.href);
       toast.success(
         exportableLocalImages > 0
-          ? `备份包已下载（${exportableLocalImages} 张图）`
+          ? `备份包已下载，含 ${exportableLocalImages} 张图`
           : "备份包已下载"
       );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "打包失败");
     } finally {
-      setZipLoading(false);
+      setExportLoading(false);
     }
+  };
+
+  const handleCopyMarkdown = async () => {
+    const content = buildArticleMarkdown({
+      title,
+      digest,
+      body,
+      includeTitle: false,
+    });
+    await navigator.clipboard.writeText(content);
+    toast.success("Markdown 正文已复制");
   };
 
   return (
@@ -190,7 +214,7 @@ export function WechatPublishPanel({
           </Select>
         </div>
         <p className="text-xs text-slate-600">
-          主流程：预览确认 → 复制富文本 → 微信后台粘贴正文 → 单独填标题/摘要/封面。无需在后台改表格或逐张插图。
+          预览确认后复制富文本，到微信后台粘贴正文；标题、摘要、封面另行填写。
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -237,39 +261,47 @@ export function WechatPublishPanel({
           </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button
-            disabled={copyLoading || !body.trim() || !allCriticalOk}
-            onClick={() => void handleCopyRichText()}
-          >
-            {copyLoading ? "复制中…" : "复制公众号富文本"}
-          </Button>
-          <Button variant="outline" onClick={() => void handleCopyMeta()}>
-            复制标题/摘要
-          </Button>
-          <Button variant="outline" disabled={wordLoading} onClick={() => void handleExportWord()}>
-            {wordLoading ? "导出中…" : "导出 Word（备用）"}
-          </Button>
-          <Button variant="outline" disabled={zipLoading} onClick={() => void handleExportZip()}>
-            {zipLoading ? "打包中…" : "导出备份包"}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-xs"
-            onClick={() => {
-              const content = buildArticleMarkdown({
-                title,
-                digest,
-                body,
-                includeTitle: false,
-              });
-              void navigator.clipboard.writeText(content);
-              toast.success("Markdown 正文已复制（不含标题）");
-            }}
-          >
-            复制 Markdown 正文
-          </Button>
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              disabled={copyLoading || !body.trim()}
+              title={
+                !canCopyRichText && placeholderImages > 0
+                  ? `还有 ${placeholderImages} 处待替换配图`
+                  : undefined
+              }
+              onClick={() => void handleCopyRichText()}
+            >
+              {copyLoading ? "复制中…" : "复制公众号富文本"}
+            </Button>
+            <Button variant="outline" onClick={() => void handleCopyMeta()}>
+              复制标题/摘要
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                disabled={exportLoading || !body.trim()}
+                className={buttonVariants({ variant: "outline" })}
+              >
+                {exportLoading ? "导出中…" : "导出"}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                <DropdownMenuItem onClick={() => void handleExportWord()}>
+                  公众号发布包（Word + 图片）
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void handleExportZip()}>
+                  Markdown 备份包
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => void handleCopyMarkdown()}>
+                  复制 Markdown
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+          {!canCopyRichText && placeholderImages > 0 ? (
+            <p className="text-xs text-amber-800">
+              {imageCheck?.hint ?? `还有 ${placeholderImages} 处待替换配图，替换后才能复制富文本`}
+            </p>
+          ) : null}
         </div>
       </CardContent>
     </Card>

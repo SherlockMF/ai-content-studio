@@ -9,7 +9,8 @@ import {
   DEMO_TOPICS,
   DEMO_VERSIONS,
 } from "@/lib/mock-data";
-import { allocateNextFriday } from "@/lib/schedule";
+import { allocateNextWeekday, applyScheduleWithCascade, remapCascadeSchedules } from "@/lib/schedule";
+import { normalizeContentStatus } from "@/lib/content-status";
 import { normalizeXiaohongshuContent } from "@/lib/xiaohongshu/content";
 import {
   inferContentSource,
@@ -43,7 +44,18 @@ interface AppStoreValue {
   deleteTopic: (id: string) => void;
   addTopics: (items: Topic[]) => void;
   upsertContent: (item: ContentItem) => void;
-  /** 自动分配下一个空闲周五并写入排期，返回 scheduledAt */
+  /** 删除稿件；默认同时删除同选题下关联平台稿，并顺延剩余排期 */
+  deleteContent: (
+    ids: string[],
+    options?: { cascadeSchedule?: boolean; includeLinkedPlatforms?: boolean }
+  ) => void;
+  /** 设置排期日；默认把同日及之后的未发布稿往后顺延 */
+  setContentSchedule: (
+    id: string,
+    dateKey: string | null,
+    options?: { cascade?: boolean }
+  ) => void;
+  /** 自动分配下一个空闲工作日并写入排期，返回 scheduledAt */
   scheduleContent: (item: Omit<ContentItem, "scheduledAt"> & { scheduledAt?: string | null }) => string;
   addVersion: (version: ContentVersion) => void;
   setReviews: (value: ContentReview[]) => void;
@@ -92,6 +104,7 @@ function migrateState(parsed: Partial<AppState>): AppState {
         maybeRestoreSeedContent({
           ...item,
           source: inferContentSource(item),
+          status: normalizeContentStatus(item.status),
         })
       )
     ),
@@ -198,10 +211,59 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
               : [item, ...prev.contentItems],
           };
         }),
+      deleteContent: (ids, options) =>
+        setState((prev) => {
+          const idSet = new Set(ids);
+          const cascadeSchedule = options?.cascadeSchedule !== false;
+          const includeLinked = options?.includeLinkedPlatforms !== false;
+          let removing = new Set(idSet);
+          if (includeLinked) {
+            const topicIds = new Set(
+              prev.contentItems.filter((item) => idSet.has(item.id)).map((item) => item.topicId)
+            );
+            for (const item of prev.contentItems) {
+              if (topicIds.has(item.topicId)) removing.add(item.id);
+            }
+          }
+          const remaining = prev.contentItems.filter((item) => !removing.has(item.id));
+          return {
+            ...prev,
+            contentItems: cascadeSchedule ? remapCascadeSchedules(remaining) : remaining,
+            versions: prev.versions.filter((version) => !removing.has(version.contentItemId)),
+            reviews: prev.reviews.filter((review) => !removing.has(review.contentItemId)),
+          };
+        }),
+      setContentSchedule: (id, dateKey, options) =>
+        setState((prev) => {
+          const cascade = options?.cascade !== false;
+          if (!cascade) {
+            return {
+              ...prev,
+              contentItems: prev.contentItems.map((item) =>
+                item.id === id
+                  ? {
+                      ...item,
+                      scheduledAt: dateKey
+                        ? new Date(`${dateKey}T12:00:00`).toISOString()
+                        : null,
+                      updatedAt: new Date().toISOString(),
+                    }
+                  : item
+              ),
+            };
+          }
+          return {
+            ...prev,
+            contentItems: applyScheduleWithCascade(prev.contentItems, {
+              lockedId: id,
+              lockedDateKey: dateKey,
+            }),
+          };
+        }),
       scheduleContent: (item) => {
         let scheduledAt = "";
         setState((prev) => {
-          scheduledAt = allocateNextFriday(prev.contentItems);
+          scheduledAt = allocateNextWeekday(prev.contentItems);
           const nextItem: ContentItem = {
             ...item,
             scheduledAt,

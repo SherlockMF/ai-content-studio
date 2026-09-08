@@ -43,17 +43,24 @@ import { HotspotItem } from "@/lib/hotspots/types";
 import {
   heuristicCoverSuggestions,
   normalizeCoverVariant,
+  type CoverImageVariant,
 } from "@/lib/illustrations/cover";
 import {
   heuristicIllustrationSuggestions,
   normalizeIllustrationSuggestion,
 } from "@/lib/illustrations/heuristic";
+import {
+  applyIllustrationSuggestionsToBody,
+  countBodyIllustrationPlaceholders,
+  prependCoverPlaceholder,
+} from "@/lib/illustrations/enrich-article-media";
 import { IMAGE_GPT_PROMPT_RULES } from "@/lib/illustrations/prompt-style";
 import {
   buildCoverContextHints,
   COVER_GPT_PROMPT_RULES,
   isParvisBlindtestCover,
   appendCoverIconInstructions,
+  enforceCoverAspectRatio,
 } from "@/lib/illustrations/cover-prompt-style";
 import { prepareBodyForIllustrationAnalysis } from "@/lib/illustrations/prepare-body";
 import {
@@ -74,6 +81,12 @@ type WechatArticleResult = {
   coverCopy: string;
   body: string;
   cta: string;
+  notes?: string;
+  factDiff?: ReturnType<typeof diffFacts>;
+  coverSummary?: string;
+  coverVariants?: CoverImageVariant[];
+  illustrationSummary?: string;
+  illustrationInserted?: number;
 };
 
 export type { WechatGenerateMode };
@@ -386,12 +399,81 @@ export async function generateWechatArticlePipeline(
     readingProfile,
   });
   const reading = analyzeReadingTime(rewritten.candidate, readingProfile);
-  return {
+  const article: WechatArticleResult = {
     ...generated,
     body: rewritten.candidate,
     notes: [rewritten.notes, `完读约 ${reading.minutes} 分钟（${reading.statusLabel}）`]
       .filter(Boolean)
       .join(" · "),
+  };
+
+  return enrichWechatArticleWithMedia(article, {
+    llm: input.llm,
+    isEvaluation: readingProfile === "evaluation" || /盲测|测评|测试/.test(input.topic.title),
+  });
+}
+
+/** 出稿后自动规划正文配图位 + 封面提示词，并写入正文 */
+export async function enrichWechatArticleWithMedia(
+  article: WechatArticleResult,
+  input: { isEvaluation?: boolean } & WithLLM
+): Promise<WechatArticleResult> {
+  const existingSlots = countBodyIllustrationPlaceholders(article.body);
+  const [illustrations, covers] = await Promise.all([
+    existingSlots >= 3
+      ? Promise.resolve({
+          summary: "正文已含配图位，跳过重复规划",
+          suggestions: [] as ReturnType<typeof normalizeIllustrationSuggestion>[],
+        })
+      : suggestIllustrations({
+          title: article.title,
+          body: article.body,
+          isEvaluation: input.isEvaluation,
+          llm: input.llm,
+        }),
+    suggestCoverImages({
+      title: article.title,
+      digest: article.digest,
+      coverCopy: article.coverCopy,
+      body: article.body,
+      isEvaluation: input.isEvaluation,
+      llm: input.llm,
+    }),
+  ]);
+
+  let body = article.body;
+  let inserted = 0;
+  if (illustrations.suggestions.length > 0) {
+    const applied = applyIllustrationSuggestionsToBody(body, illustrations.suggestions);
+    body = applied.body;
+    inserted = applied.inserted;
+  }
+
+  const primaryCover = covers.variants[0];
+  if (primaryCover) {
+    body = prependCoverPlaceholder(body, primaryCover);
+  }
+
+  const coverCopy =
+    article.coverCopy.trim() || primaryCover?.overlayText?.trim() || article.coverCopy;
+
+  const notes = [
+    article.notes,
+    inserted > 0 ? `已自动插入 ${inserted} 处正文配图位` : undefined,
+    covers.variants.length > 0 ? "已生成封面图提示词" : undefined,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  return {
+    ...article,
+    body,
+    coverCopy,
+    notes,
+    coverSummary: covers.summary,
+    coverVariants: covers.variants.slice(0, 1),
+    illustrationSummary: illustrations.summary,
+    illustrationInserted: inserted,
   };
 }
 
@@ -511,7 +593,7 @@ export async function suggestCoverImages(
 摘要：${input.digest || "（无）"}
 封面短文案：${input.coverCopy || "（待生成，请根据标题提炼）"}
 
-请输出恰好 3 套不同风格的封面方案。
+请输出恰好 1 套封面方案，写入 variants 数组仅一项。
 
 输出 JSON 示例：
 {
@@ -522,22 +604,23 @@ export async function suggestCoverImages(
       "styleLabel": "概念插画封面",
       "overlayText": "画面上可选的短文案",
       "gptPrompt": "完整中文生图提示词...",
-      "altText": "封面描述",
+      "altText": "公众号封面",
       "notes": "使用场景说明（可选）"
     }
   ]
 }
 
 要求：
-1. 所有方案针对微信公众号头条封面：比例 2.35:1（约 900×383），安全区居中，两端可能被裁切。
-2. gptPrompt 必须全文简体中文（见下方规范），可直接复制到 ChatGPT 生图。
-3. overlayText 建议 4-16 字，可与封面短文案一致或更精炼。
-4. 三套风格需明显不同，例如：概念插画 / 测评对比 / 信息图或流程图。
-5. 测评文可突出 Agent 对比、数据或盲测结论；观点文突出核心隐喻。
-6. 不要写实照片，不要满屏小字。
-7. gptPrompt 必须为每个测评对象写明「图标画什么」（语义隐喻），禁止写「不同颜色的几何图标」等模糊描述。
+1. 针对微信公众号头条封面：比例必须是 2.35:1（约 1472×624），安全区居中，两端可能被裁切。
+2. 禁止写成 16:9 / 正文配图比例；gptPrompt 开头须写明「微信公众号头条封面图，比例 2.35:1」。
+3. gptPrompt 必须全文简体中文，可直接复制到 ChatGPT 生图；画面构图与文字要求全部写进 gptPrompt，不要写进 altText。
+4. altText 固定用短标签「公众号封面」，不要写成画面描述长句。
+5. overlayText 建议 4-16 字，可与封面短文案一致或更精炼。
+6. 测评文可突出 Agent 对比、数据或盲测结论；观点文突出核心隐喻。
+7. 不要写实照片，不要满屏小字。
+8. gptPrompt 必须为每个测评对象写明「图标画什么」（语义隐喻），禁止写「不同颜色的几何图标」等模糊描述。
+9. 只输出一套最终方案，不要多路线备选。
 
-${IMAGE_GPT_PROMPT_RULES}
 ${COVER_GPT_PROMPT_RULES}
 ${coverHints ? `\n${coverHints}` : ""}
 
@@ -561,7 +644,7 @@ ${excerpt ? `--- 正文摘录 ---\n${excerpt}` : ""}`,
     return {
       summary: raw.summary,
       variants: appendCoverIconInstructions(
-        raw.variants.map((item, index) => normalizeCoverVariant(item, index)),
+        [normalizeCoverVariant(raw.variants[0], 0)],
         { parvisBlindtest }
       ),
     };
@@ -581,13 +664,17 @@ export async function refineCoverPrompt(
   } & WithLLM
 ) {
   const provider = getLLMProvider(input.llm);
-  return provider.generateStructuredOutput(
+  const refined = await provider.generateStructuredOutput(
     [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: buildCoverPromptRefinePrompt(input) },
     ],
     coverPromptRefineOutputSchema
   );
+  return {
+    ...refined,
+    gptPrompt: enforceCoverAspectRatio(refined.gptPrompt),
+  };
 }
 
 export async function generateContentSchedule() {

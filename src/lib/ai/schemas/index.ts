@@ -1,9 +1,5 @@
 import { z } from "zod";
 import {
-  clampXiaohongshuBody,
-  clampXiaohongshuTitle,
-} from "@/lib/xiaohongshu/limits";
-import {
   extractHashtagsFromText,
   foldXiaohongshuVariant,
 } from "@/lib/xiaohongshu/note-body";
@@ -63,8 +59,8 @@ const xiaohongshuVariantSchema = z
   })
   .transform((value) =>
     foldXiaohongshuVariant({
-      title: clampXiaohongshuTitle(value.title.trim()),
-      body: clampXiaohongshuBody(value.body),
+      title: value.title,
+      body: value.body,
       cta: value.cta ?? "",
       hashtags: value.hashtags ?? [],
     })
@@ -181,6 +177,7 @@ export const coverImageVariantSchema = z.object({
 
 export const coverImageOutputSchema = z.object({
   summary: z.string().optional(),
+  /** 模型偶发多返回时仍解析成功，调用方只取第一套 */
   variants: z.array(coverImageVariantSchema).min(1).max(4),
 });
 

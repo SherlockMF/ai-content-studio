@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Copy, Download, ImageIcon, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +11,7 @@ import {
   buildXiaohongshuNoteText,
   buildXiaohongshuPromptText,
   buildXiaohongshuPublishChecks,
-  buildXiaohongshuPublishMarkdown,
+  buildXiaohongshuPublishBundle,
 } from "@/lib/xiaohongshu/publish";
 import { countMissingXiaohongshuImages } from "@/lib/xiaohongshu/generate-images";
 import { cn } from "@/lib/utils";
@@ -40,17 +41,6 @@ const ROLE_LABELS: Record<XiaohongshuImagePrompt["role"], string> = {
   ending: "收尾",
 };
 
-function cleanFileName(title: string): string {
-  const cleaned = title
-    .trim()
-    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/[. ]+$/g, "")
-    .slice(0, 80);
-
-  return `${cleaned || "xiaohongshu"}-xiaohongshu.md`;
-}
-
 export function XiaohongshuPublishPanel({
   data,
   tone,
@@ -63,12 +53,13 @@ export function XiaohongshuPublishPanel({
   imageRendering,
   imageProgress,
 }: XiaohongshuPublishPanelProps) {
+  const [exporting, setExporting] = useState(false);
   const variant = data.variants[tone];
   const checks = buildXiaohongshuPublishChecks({ data, tone, review });
   const canCopyFullNote = checks.every((check) => !check.blocking || check.ok);
   const missingCount = countMissingXiaohongshuImages(data.imagePlan);
   const coverImage = data.imagePlan.find((item) => item.imageUrl)?.imageUrl;
-  const busy = imageRegenerating || imageRendering;
+  const busy = imageRegenerating || imageRendering || exporting;
 
   const copyText = async (text: string, successMessage: string) => {
     try {
@@ -79,22 +70,27 @@ export function XiaohongshuPublishPanel({
     }
   };
 
-  const downloadMarkdown = () => {
+  const downloadBundle = async () => {
+    if (busy) return;
+    setExporting(true);
     let objectUrl: string | undefined;
 
     try {
-      const markdown = buildXiaohongshuPublishMarkdown(data, tone, sourceTitle);
-      const blob = new Blob([markdown], { type: "text/markdown;charset=utf-8" });
+      const { blob, fileName } = await buildXiaohongshuPublishBundle(data, tone, sourceTitle);
       objectUrl = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = objectUrl;
-      anchor.download = cleanFileName(variant.title);
+      anchor.download = fileName;
       anchor.click();
       toast.success("小红书发布包已下载");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "导出失败，请稍后重试");
     } finally {
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      if (objectUrl) {
+        const url = objectUrl;
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+      setExporting(false);
     }
   };
 
@@ -340,9 +336,9 @@ export function XiaohongshuPublishPanel({
           >
             复制标题+正文
           </Button>
-          <Button variant="outline" onClick={downloadMarkdown}>
+          <Button variant="outline" disabled={busy} onClick={() => void downloadBundle()}>
             <Download data-icon="inline-start" />
-            导出发布包
+            {exporting ? "打包中…" : "导出发布包（ZIP）"}
           </Button>
         </div>
       </CardContent>

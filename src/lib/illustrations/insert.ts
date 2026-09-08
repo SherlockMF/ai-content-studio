@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { illustrationSuggestionSchema } from "@/lib/ai/schemas";
+import {
+  enforceCoverAspectRatio,
+  WECHAT_COVER_PROMPT_HEADER,
+} from "@/lib/illustrations/cover-prompt-style";
 
 export type IllustrationKind =
   | "数据图表"
@@ -53,8 +57,8 @@ export function buildCoverImageBlock(
   return [
     `![${altText}](${imageUrl})`,
     "",
-    "<!-- 公众号封面 GPT 提示词（简体中文，2.35:1，建议 900×383）",
-    gptPrompt,
+    WECHAT_COVER_PROMPT_HEADER,
+    enforceCoverAspectRatio(gptPrompt),
     "-->",
   ].join("\n");
 }

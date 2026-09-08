@@ -2,21 +2,8 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import {
-  closestCenter,
-  DndContext,
-  DragEndEvent,
-  PointerSensor,
-  useSensor,
-  useSensors,
-} from "@dnd-kit/core";
-import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import { GripVertical } from "lucide-react";
 import { toast } from "sonner";
-import { EmptyState } from "@/components/shared/states";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -33,82 +20,65 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { CONTENT_STATUSES, PLATFORM_OPTIONS } from "@/lib/content-status";
 import {
-  formatFridayLabel,
-  isFridayDateKey,
-  remapToConsecutiveFridays,
+  CONTENT_STATUSES,
+  PLATFORM_OPTIONS,
+  isPublishedLikeStatus,
+  shouldStampPublishedAt,
+} from "@/lib/content-status";
+import {
+  buildScheduleHeatmap,
+  formatScheduleLabel,
+  isWeekdayDateKey,
+  type ScheduleHeatCell,
 } from "@/lib/schedule";
 import { useAppStore } from "@/lib/store/app-store";
 import { ContentItem, ContentStatus, Platform } from "@/types/domain";
 import { cn } from "@/lib/utils";
 
-function SortableRow({
-  item,
-  onOpen,
-}: {
-  item: ContentItem;
-  onOpen: (item: ContentItem) => void;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
-    id: item.id,
-  });
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
+const DAY_LABELS = ["日", "一", "二", "三", "四", "五", "六"];
 
-  return (
-    <div ref={setNodeRef} style={style}>
-      <Card className="relative">
-        <button
-          type="button"
-          className="absolute top-3 right-3 z-10 cursor-grab text-slate-400 hover:text-slate-600"
-          {...attributes}
-          {...listeners}
-          aria-label="拖拽调整排期"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <GripVertical className="h-4 w-4" />
-        </button>
-        <button
-          type="button"
-          className="w-full p-4 pr-10 text-left hover:bg-slate-50"
-          onClick={() => onOpen(item)}
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 space-y-1">
-              <p className="text-xs font-medium text-slate-500">
-                {formatFridayLabel(item.scheduledAt)}
-              </p>
-              <p className="line-clamp-2 text-sm font-medium">{item.title}</p>
-              <p className="text-xs text-slate-500">{item.status}</p>
-            </div>
-          </div>
-        </button>
-      </Card>
-    </div>
-  );
+type HeatTone = "empty" | "scheduled" | "published";
+
+function cellHeatTone(cell: ScheduleHeatCell): HeatTone {
+  if (cell.items.length === 0) return "empty";
+  if (cell.items.some((item) => isPublishedLikeStatus(item.status))) return "published";
+  return "scheduled";
+}
+
+function cellToneClass(tone: HeatTone) {
+  if (tone === "published") return "bg-sky-400 hover:bg-sky-300 cursor-pointer";
+  if (tone === "scheduled") return "bg-sky-900 hover:bg-sky-800 cursor-pointer";
+  return "bg-slate-800/90 cursor-default";
 }
 
 export function ScheduleBoard() {
-  const { contentItems, upsertContent } = useAppStore();
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const { contentItems, upsertContent, setContentSchedule } = useAppStore();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editPlatform, setEditPlatform] = useState<Platform>("wechat");
   const [editStatus, setEditStatus] = useState<ContentStatus>("待发布");
   const [editDate, setEditDate] = useState("");
 
-  const sortedItems = useMemo(
-    () =>
-      [...contentItems]
-        .filter((item) => item.scheduledAt)
-        .sort((a, b) => (a.scheduledAt ?? "").localeCompare(b.scheduledAt ?? "")),
+  const { weeks, monthLabels } = useMemo(
+    () => buildScheduleHeatmap(contentItems, { pastWeeks: 6, futureWeeks: 10 }),
     [contentItems]
   );
 
-  const activeItem = sortedItems.find((item) => item.id === activeId) ?? null;
+  const litCount = useMemo(
+    () => contentItems.filter((item) => item.scheduledAt).length,
+    [contentItems]
+  );
+  const publishedCount = useMemo(
+    () =>
+      contentItems.filter(
+        (item) => item.scheduledAt && isPublishedLikeStatus(item.status)
+      ).length,
+    [contentItems]
+  );
+  const scheduledOnlyCount = litCount - publishedCount;
+
+  const activeItem = contentItems.find((item) => item.id === activeId) ?? null;
 
   const openItem = (item: ContentItem) => {
     setActiveId(item.id);
@@ -118,62 +88,129 @@ export function ScheduleBoard() {
     setEditDate((item.scheduledAt ?? "").slice(0, 10));
   };
 
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-
-    const oldIndex = sortedItems.findIndex((item) => item.id === active.id);
-    const newIndex = sortedItems.findIndex((item) => item.id === over.id);
-    if (oldIndex < 0 || newIndex < 0) return;
-
-    const moved = arrayMove(sortedItems, oldIndex, newIndex);
-    const remapped = remapToConsecutiveFridays(moved);
-    remapped.forEach((item) => upsertContent(item));
-    toast.success("已按周五节奏重排");
+  const handleCellClick = (cell: ScheduleHeatCell) => {
+    if (cell.items.length === 0) return;
+    openItem(cell.items[0]);
   };
 
   const saveEdits = () => {
     if (!activeItem) return;
-    if (editDate && !isFridayDateKey(editDate)) {
-      toast.message("提示：默认节奏是每周五，当前日期不是周五，仍将按你指定的日期保存");
+    if (editDate && !isWeekdayDateKey(editDate)) {
+      toast.message("当前日期不是工作日，仍将按你指定的日期保存");
     }
-    const publishedAt =
-      editStatus === "已发布"
-        ? activeItem.publishedAt ?? new Date().toISOString()
-        : activeItem.publishedAt;
+    const publishedAt = shouldStampPublishedAt(editStatus)
+      ? activeItem.publishedAt ?? new Date().toISOString()
+      : activeItem.publishedAt;
     upsertContent({
       ...activeItem,
       title: editTitle.trim() || activeItem.title,
       platform: editPlatform,
       status: editStatus,
       publishedAt,
-      scheduledAt: editDate ? new Date(`${editDate}T12:00:00`).toISOString() : null,
       updatedAt: new Date().toISOString(),
     });
-    toast.success("排期已更新");
+    setContentSchedule(activeItem.id, editDate || null, { cascade: true });
+    toast.success(editDate ? "排期已更新，后续稿已顺延" : "已取消排期并重排其余稿");
     setActiveId(null);
   };
 
   return (
     <div className="space-y-3">
-      <p className="text-sm text-slate-500">默认每周五一篇。拖拽可改顺序；点击条目可编辑排期信息。</p>
+      <div className="overflow-x-auto rounded-xl border border-slate-800 bg-[#0b0f14] p-4 text-slate-200 shadow-sm">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-sm font-medium text-slate-100">发布排期</h3>
+          <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+            {litCount > 0 ? (
+              <span>
+                {publishedCount} 已发布 · {scheduledOnlyCount} 未发布 · 点击有稿格编辑
+              </span>
+            ) : (
+              <span>暂无排期</span>
+            )}
+            <span className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1">
+                <span className="h-2.5 w-2.5 rounded-[2px] bg-sky-400" />
+                已发布
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="h-2.5 w-2.5 rounded-[2px] bg-sky-900" />
+                未发布
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="h-2.5 w-2.5 rounded-[2px] bg-slate-800" />
+                无稿
+              </span>
+            </span>
+          </div>
+        </div>
 
-      {sortedItems.length === 0 ? (
-        <EmptyState
-          title="暂无排期"
-          description="在选题中点击「加入排期」，将自动排到下一个可用周五。"
-        />
-      ) : (
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={sortedItems.map((item) => item.id)} strategy={verticalListSortingStrategy}>
-            <div className="grid gap-2 md:grid-cols-2">
-              {sortedItems.map((item) => (
-                <SortableRow key={item.id} item={item} onOpen={openItem} />
+        <div className="flex gap-2">
+          <div className="flex w-4 shrink-0 flex-col justify-between py-0.5 text-[10px] leading-none text-slate-500">
+            {DAY_LABELS.map((label, index) =>
+              index % 2 === 1 ? (
+                <span key={label} className="h-3.5">
+                  {label}
+                </span>
+              ) : (
+                <span key={label} className="h-3.5" />
+              )
+            )}
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <div className="flex gap-[3px]">
+              {weeks.map((week, weekIndex) => (
+                <div key={week[0]?.dateKey ?? weekIndex} className="flex flex-col gap-[3px]">
+                  {week.map((cell) => {
+                    const tone = cellHeatTone(cell);
+                    const lit = tone !== "empty";
+                    const statusHint =
+                      tone === "published"
+                        ? "已发布"
+                        : tone === "scheduled"
+                          ? "未发布"
+                          : "无稿";
+                    const title = lit
+                      ? `${cell.dateKey} · ${statusHint} · ${cell.items
+                          .map((item) => item.title)
+                          .join(" / ")}`
+                      : cell.dateKey;
+                    return (
+                      <button
+                        key={cell.dateKey}
+                        type="button"
+                        title={title}
+                        disabled={!lit}
+                        onClick={() => handleCellClick(cell)}
+                        className={cn(
+                          "h-3.5 w-3.5 rounded-[3px] transition",
+                          cellToneClass(tone),
+                          cell.items.length > 1 && "ring-1 ring-sky-200/40"
+                        )}
+                        aria-label={title}
+                      />
+                    );
+                  })}
+                </div>
               ))}
             </div>
-          </SortableContext>
-        </DndContext>
-      )}
+
+            <div className="relative mt-2 h-4 text-[10px] text-slate-500">
+              {monthLabels.map((label) => (
+                <span
+                  key={`${label.weekIndex}-${label.label}`}
+                  className="absolute top-0"
+                  style={{
+                    left: `calc(${label.weekIndex} * (0.875rem + 3px))`,
+                  }}
+                >
+                  {label.label}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
 
       <Sheet
         open={Boolean(activeItem)}
@@ -188,6 +225,7 @@ export function ScheduleBoard() {
           </SheetHeader>
           {activeItem ? (
             <div className="space-y-4 px-4 pb-4">
+              <p className="text-xs text-slate-500">{formatScheduleLabel(activeItem.scheduledAt)}</p>
               <div className="space-y-1">
                 <label className="text-sm">标题</label>
                 <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
@@ -233,7 +271,10 @@ export function ScheduleBoard() {
             </div>
           ) : null}
           <SheetFooter className={cn("gap-2")}>
-            <Link href="/content" className={buttonVariants({ variant: "outline" })}>
+            <Link
+              href={activeItem ? `/content?topicId=${activeItem.topicId}` : "/content"}
+              className={buttonVariants({ variant: "outline" })}
+            >
               去写稿
             </Link>
             <Button onClick={saveEdits}>保存排期</Button>

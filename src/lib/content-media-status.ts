@@ -49,31 +49,14 @@ export function analyzeIllustrationSlots(body: string): IllustrationSlotStatus {
   return { total, filled, pending, withPrompt };
 }
 
-/** 「识别正文配图」按钮角标文案 */
+/** 「识别正文配图」按钮角标文案；无则不显示 */
 export function formatIllustrationButtonHint(body: string): string | null {
   const { total, filled, pending, withPrompt } = analyzeIllustrationSlots(body);
   if (total === 0 && withPrompt === 0) return null;
-
-  if (filled > 0 && pending === 0) {
-    return `(已配图 ${filled})`;
-  }
-
-  if (withPrompt > 0 && pending > 0 && filled === 0) {
-    return `(提示词已备 ${withPrompt} · 待传图 ${pending})`;
-  }
-
-  if (withPrompt > 0 && filled > 0 && pending > 0) {
-    return `(已配图 ${filled} · 待传 ${pending})`;
-  }
-
-  if (withPrompt > 0) {
-    return `(提示词已备 ${withPrompt})`;
-  }
-
-  if (pending > 0) {
-    return `(待传图 ${pending})`;
-  }
-
+  if (filled > 0 && pending === 0) return `${filled} 图`;
+  if (pending > 0 && filled > 0) return `${filled}/${total}`;
+  if (pending > 0) return `${pending} 待传`;
+  if (withPrompt > 0) return `${withPrompt} 提示词`;
   return null;
 }
 
@@ -98,12 +81,7 @@ export function analyzeCoverMedia(body: string, coverCopy?: string): CoverMediaS
   return { hasCopy, hasPrompt, hasImage };
 }
 
-/** 封面区角标：文案 / 提示词 / 已配图 / 缺 */
-export function formatCoverStatusHint(body: string, coverCopy?: string): string {
-  const { hasCopy, hasPrompt, hasImage } = analyzeCoverMedia(body, coverCopy);
-
-  if (hasImage) return "(已配图)";
-  if (hasPrompt) return "(提示词已备)";
-  if (hasCopy) return "(文案已备)";
-  return "(缺)";
+/** 封面区角标；默认不展示说明性括号文案 */
+export function formatCoverStatusHint(_body: string, _coverCopy?: string): string {
+  return "";
 }

@@ -1,3 +1,5 @@
+import { WECHAT_COVER_RATIO_LABEL } from "@/lib/illustrations/cover-prompt-style";
+
 export function buildCoverPromptRefinePrompt(input: {
   title?: string;
   styleLabel?: string;
@@ -15,7 +17,7 @@ export function buildCoverPromptRefinePrompt(input: {
 }
 
 硬性要求：
-1. 保留微信公众号头条封面 2.35:1（约 900×383）、安全区居中、简体中文。
+1. 保留微信公众号头条封面 ${WECHAT_COVER_RATIO_LABEL}、安全区居中、简体中文；禁止改成 16:9 正文配图比例。
 2. 落实用户修改建议，但不要偏离原风格意图（styleLabel）。
 3. 不要写实照片、不要满屏小字、不要虚构原文未支持的产品效果。
 4. gptPrompt 必须可直接复制到 ChatGPT 生图。

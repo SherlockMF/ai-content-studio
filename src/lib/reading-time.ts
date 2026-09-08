@@ -186,5 +186,5 @@ ${analysis.guidance}`;
 }
 
 export function formatReadingTimeBadge(analysis: ReadingTimeAnalysis) {
-  return `约 ${analysis.minutes} 分钟 · ${analysis.statusLabel}`;
+  return `约 ${analysis.minutes} 分钟 · ${analysis.charCount} 字`;
 }

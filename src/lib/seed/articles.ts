@@ -1,4 +1,4 @@
-/** 种子稿：今天 Parvis 盲测；下周五 Harness */
+/** 种子稿：今天 Parvis 盲测；下一工作日 Harness */
 
 export { ARTICLE_PARVIS_BLINDTEST as ARTICLE_GIS } from "./parvis-blindtest-article";
 

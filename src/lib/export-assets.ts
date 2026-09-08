@@ -26,13 +26,16 @@ export async function fetchLocalAsset(pathname: string) {
 
 export async function resolveMarkdownImage(url: string) {
   const rawUrl = url.trim();
-  if (!rawUrl || PLACEHOLDER_RE.test(rawUrl)) return null;
+  if (!rawUrl) return null;
 
   if (rawUrl.startsWith("data:image")) {
     const parsed = parseDataUrl(rawUrl);
     if (!parsed) return null;
     return { bytes: parsed.bytes, alt: "" };
   }
+
+  // Base64 图片内容可能随机含有 fill/link 等字串，不能拿图片编码判断占位符。
+  if (PLACEHOLDER_RE.test(rawUrl)) return null;
 
   if (rawUrl.startsWith("/article-assets/") || rawUrl.startsWith("/brand-icons/")) {
     const fetched = await fetchLocalAsset(rawUrl);

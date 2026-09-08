@@ -10,6 +10,9 @@ import { BLINDTEST_XHS_ICON_PROMPT } from "@/lib/illustrations/cover-prompt-styl
 export const XIAOHONGSHU_FIXED_VISUAL_DIRECTION =
   "暖色小红书图文笔记固定视觉系统（全账号统一，不得更换）：暖米白/浅杏底，柔和珊瑚与暖杏点缀，圆角信息块，彩色扁平或软 3D 小图标，清晰中文大标题，留白充足，像可滑动的干货讲解页；禁止冷蓝紫科技感、霓虹、深色赛博、金属科幻光效";
 
+export const XIAOHONGSHU_NO_PAGE_BADGES =
+  "整组图片统一不显示页码和角标：四角及边缘不得出现页码、页数分数、单独的装饰序号或进度标记。此规则覆盖原提示词、构图和图中文字中的任何页码要求；图片 index 仅用于文件排序，不得画进图中。正文内有意义的事实数字、步骤编号照常保留。";
+
 export function withFixedXiaohongshuVisualDirection<T extends { visualDirection: string }>(
   result: T
 ): T {
@@ -148,6 +151,8 @@ ${XIAOHONGSHU_FIXED_VISUAL_DIRECTION}
 【视觉方向与配图（暖色图文笔记讲解页）】
 目标形态：一组 3:4 竖版「可滑动讲解页」，像产品介绍/干货分享笔记：暖米白底、大标题、短副文、柔和彩色小图标、圆角信息块、界面示意或能力宫格。气质偏温暖、好读、生活感知识分享，不要冷冰冰科技海报。
 图片默认 3:4、1080×1440；首张 role=cover，末张 role=ending，index 从 1 连续递增。
+${XIAOHONGSHU_NO_PAGE_BADGES}
+每张 prompt 都必须包含上述无页码角标要求。
 根据内容自动规划 5～8 张，中间 role=content，每张只讲一个点，像笔记多图第 1～N 页。
 图片优先覆盖：封面总命题、这是什么/为什么重要、主体或概念对照、关键能力拆解、界面或场景示意、结论收束。
 

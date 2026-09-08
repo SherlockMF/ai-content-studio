@@ -21,10 +21,13 @@ export function KnowledgeReferencePicker({
   query,
   value,
   onChange,
+  compact = false,
 }: {
   query: string;
   value: KnowledgeReference[];
   onChange: (value: KnowledgeReference[]) => void;
+  /** 收进折叠区时用更矮的一行样式 */
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -72,17 +75,36 @@ export function KnowledgeReferencePicker({
   };
 
   return (
-    <Card className="border-dashed">
-      <CardHeader className="flex-row items-center justify-between space-y-0 py-3">
+    <Card className={compact ? "border-dashed shadow-none" : "border-dashed"}>
+      <CardHeader
+        className={
+          compact
+            ? "flex-row items-center justify-between space-y-0 px-3 py-2"
+            : "flex-row items-center justify-between space-y-0 py-3"
+        }
+      >
         <div>
-          <CardTitle className="flex items-center gap-2 text-sm"><BookOpen />本次参考资料</CardTitle>
-          <p className="mt-1 text-xs text-muted-foreground">系统自动推荐，你可以在生成前增删确认。</p>
+          <CardTitle className="flex items-center gap-2 text-sm">
+            <BookOpen />
+            本次参考资料
+            {value.length > 0 ? (
+              <Badge variant="secondary" className="text-[10px]">
+                {value.length}
+              </Badge>
+            ) : null}
+          </CardTitle>
+          {compact ? null : (
+            <p className="mt-1 text-xs text-muted-foreground">
+              系统自动推荐，你可以在生成前增删确认。
+            </p>
+          )}
         </div>
         <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
-          {loading ? <Loader2 className="animate-spin" /> : <Search />}{value.length ? `管理 ${value.length} 条` : "选择资料"}
+          {loading ? <Loader2 className="animate-spin" /> : <Search />}
+          {value.length ? `管理 ${value.length} 条` : "选择资料"}
         </Button>
       </CardHeader>
-      {value.length > 0 ? (
+      {!compact && value.length > 0 ? (
         <CardContent className="flex flex-wrap gap-2 pt-0">
           {value.map((reference) => (
             <Badge key={reference.chunkId} variant="secondary" className="h-7 max-w-full gap-1.5 pl-2.5 pr-1">

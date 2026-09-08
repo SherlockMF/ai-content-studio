@@ -38,7 +38,7 @@ export function buildWechatPublishChecks(input: {
   const checks: PublishCheckItem[] = [
     {
       id: "title",
-      label: "标题已填写（粘贴到公众号标题栏）",
+      label: "标题已填写",
       ok: Boolean(input.title.trim()),
     },
     {
@@ -48,41 +48,37 @@ export function buildWechatPublishChecks(input: {
     },
     {
       id: "digest",
-      label: "摘要已填写（建议填写）",
+      label: "摘要已填写",
       ok: Boolean(input.digest?.trim()),
-      hint: input.digest?.trim() ? undefined : "列表页展示用，建议 40–120 字",
+      hint: input.digest?.trim() ? undefined : "列表页展示用，建议填写",
     },
     {
       id: "no-h1",
-      label: "正文不含 H1（一级标题会降为加粗段落）",
+      label: "正文不含一级标题 #",
       ok: !hasH1,
-      hint: hasH1
-        ? "正文 # 标题会按加粗段落导出，不占用公众号标题栏；建议改用 ##"
-        : undefined,
+      hint: hasH1 ? "建议把 # 改成 ##，避免和公众号标题栏冲突" : undefined,
     },
     {
       id: "images",
       label:
         placeholderCount > 0
-          ? `无待替换占位图（当前 ${placeholderCount} 处）`
+          ? `仍有 ${placeholderCount} 处待替换配图`
           : localImages > 0
-            ? `本地图片 ${localImages} 张（复制时将内嵌）`
-            : "图片：无本地图或均为外链",
+            ? `本地图片 ${localImages} 张`
+            : "无待替换配图",
       ok: placeholderCount === 0,
       hint:
         placeholderCount > 0
-          ? "先用「插入本地图片」替换「待替换」占位"
+          ? "用「插入本地图片」替换后，才能复制富文本到公众号"
           : undefined,
     },
     {
       id: "facts",
       label: factBlocked
-        ? "事实 Diff 已人工确认"
+        ? "事实 Diff 待确认"
         : input.factDiff
-          ? input.factDiff.blocking
-            ? "事实 Diff 已确认"
-            : "事实核对通过"
-          : "事实核对（润色后自动）",
+          ? "事实核对通过"
+          : "事实核对",
       ok: !factBlocked,
       hint: factBlocked
         ? input.factDiff?.summary ?? "存在关键数值变化，需确认后才能发布"

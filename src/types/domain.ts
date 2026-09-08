@@ -26,7 +26,9 @@ export type ContentStatus =
   | "待质检"
   | "待确认"
   | "待发布"
-  | "已发布";
+  | "公众号已发布"
+  | "小红书已发布"
+  | "已归档";
 
 /** 已有草稿（含种子稿） vs 选题页 AI 新生成 */
 export type ContentSource = "imported" | "ai";
@@ -229,6 +231,18 @@ export interface ContentItem {
   supplementaryNotes?: string;
   /** 封面生图用的原品牌图标（Parvis/Codex/Cola/WorkBuddy） */
   brandIconRefs?: Partial<Record<BrandIconSlot, string>>;
+  /** 出稿时自动生成的封面提示词，进入稿件页可直接查看 */
+  coverPromptPack?: {
+    summary?: string;
+    variants: Array<{
+      id: string;
+      styleLabel: string;
+      overlayText: string;
+      gptPrompt: string;
+      altText: string;
+      notes?: string;
+    }>;
+  };
   /** 最近一次 AI 润色的事实 Diff；blocking 且未确认时不可标「待发布」 */
   lastFactDiff?: FactDiffSnapshot;
   xiaohongshu?: XiaohongshuDraftData;

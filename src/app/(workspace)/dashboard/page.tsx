@@ -5,15 +5,21 @@ import { AppShell } from "@/components/shared/app-shell";
 import { ScheduleBoard } from "@/components/shared/schedule-board";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
+import { isArchivedStatus, isPublishedLikeStatus } from "@/lib/content-status";
 import { useAppStore } from "@/lib/store/app-store";
 
 export default function DashboardPage() {
   const { contentItems } = useAppStore();
-  const pendingConfirm = contentItems.filter((i) => i.status === "待确认");
-  const pendingPublish = contentItems.filter((i) => i.status === "待发布");
-  const editing = contentItems.filter((i) =>
+  const activeItems = contentItems.filter((item) => !isArchivedStatus(item.status));
+  const pendingConfirm = activeItems.filter((i) => i.status === "待确认");
+  const pendingPublish = activeItems.filter((i) => i.status === "待发布");
+  const editing = activeItems.filter((i) =>
     ["AI 草稿", "编辑中", "待质检"].includes(i.status)
   );
+  const publishedChannel = activeItems.filter(
+    (i) => i.status === "公众号已发布" || i.status === "小红书已发布"
+  );
+  const archived = contentItems.filter((i) => isArchivedStatus(i.status));
 
   return (
     <AppShell
@@ -31,11 +37,11 @@ export default function DashboardPage() {
     >
       <div className="space-y-6">
         <section>
-          <h2 className="mb-3 text-sm font-semibold text-slate-700">排期（每周五）</h2>
+          <h2 className="mb-3 text-sm font-semibold text-slate-700">排期</h2>
           <ScheduleBoard />
         </section>
 
-        <section className="grid gap-4 md:grid-cols-3">
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <Card>
             <CardHeader>
               <CardTitle className="text-sm">待确认</CardTitle>
@@ -71,6 +77,24 @@ export default function DashboardPage() {
               {editing.slice(0, 3).map((item) => (
                 <p key={item.id} className="truncate text-slate-600">
                   {item.title}
+                </p>
+              ))}
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">渠道已发 / 归档</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <p className="text-2xl font-semibold">
+                {publishedChannel.length}
+                <span className="mx-1 text-base font-normal text-slate-400">/</span>
+                {archived.length}
+              </p>
+              {[...publishedChannel, ...archived].slice(0, 3).map((item) => (
+                <p key={item.id} className="truncate text-slate-600">
+                  {item.title}
+                  {isPublishedLikeStatus(item.status) ? ` · ${item.status}` : ""}
                 </p>
               ))}
             </CardContent>

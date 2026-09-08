@@ -54,7 +54,6 @@ export function useContentMedia(input: {
   const [illustrationSuggestions, setIllustrationSuggestions] = useState<IllustrationSuggestion[]>(
     []
   );
-  const [coverDialogOpen, setCoverDialogOpen] = useState(false);
   const [coverLoading, setCoverLoading] = useState(false);
   const [coverByTopic, setCoverByTopic] = useState<Record<string, CoverAnalysisEntry>>({});
   const [illustrationCacheKey, setIllustrationCacheKey] = useState<string | null>(null);
@@ -155,11 +154,13 @@ export function useContentMedia(input: {
     }
   };
 
-  const analyzeCover = async (options?: { force?: boolean }) => {
-    if (coverLoading) return;
+  const analyzeCover = async (options?: {
+    force?: boolean;
+  }): Promise<CoverImageVariant | null> => {
+    if (coverLoading) return null;
     if (!input.title.trim() && !input.body.trim()) {
       toast.error("请先填写标题或正文");
-      return;
+      return null;
     }
     const cached =
       !options?.force &&
@@ -167,10 +168,8 @@ export function useContentMedia(input: {
       coverCacheKey !== null &&
       coverCacheKey === coverSourceKey;
     if (cached) {
-      setCoverDialogOpen(true);
-      return;
+      return coverVariants[0] ?? null;
     }
-    setCoverDialogOpen(true);
     setCoverLoading(true);
     if (options?.force) {
       setCoverByTopic((current) => clearCoverAnalysisEntry(current, input.topicId));
@@ -192,7 +191,7 @@ export function useContentMedia(input: {
       });
       const result = await res.json();
       if (!res.ok) throw new Error(result.message || "封面图分析失败");
-      const variants = (result.variants ?? []) as CoverImageVariant[];
+      const variants = ((result.variants ?? []) as CoverImageVariant[]).slice(0, 1);
       setCoverByTopic((current) =>
         upsertCoverAnalysisEntry(current, input.topicId, {
           summary: result.summary,
@@ -200,9 +199,10 @@ export function useContentMedia(input: {
           cacheKey: coverSourceKey,
         })
       );
+      return variants[0] ?? null;
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "封面图分析失败");
-      setCoverDialogOpen(false);
+      return null;
     } finally {
       setCoverLoading(false);
     }
@@ -214,14 +214,36 @@ export function useContentMedia(input: {
     );
   };
 
+  const seedFromGeneration = (payload: {
+    coverSummary?: string;
+    coverVariants?: CoverImageVariant[];
+    title: string;
+    digest: string;
+    coverCopy: string;
+    body: string;
+  }) => {
+    if (!payload.coverVariants?.length) return;
+    setCoverByTopic((current) =>
+      upsertCoverAnalysisEntry(current, input.topicId, {
+        summary: payload.coverSummary,
+        variants: (payload.coverVariants ?? []).slice(0, 1),
+        cacheKey: buildCoverSourceKey({
+          topicId: input.topicId,
+          title: payload.title,
+          digest: payload.digest,
+          coverCopy: payload.coverCopy,
+          body: payload.body,
+        }),
+      })
+    );
+  };
+
   return {
     illustrationDialogOpen,
     setIllustrationDialogOpen,
     illustrationLoading,
     illustrationSummary,
     illustrationSuggestions,
-    coverDialogOpen,
-    setCoverDialogOpen,
     coverLoading,
     coverSummary,
     coverVariants,
@@ -232,5 +254,6 @@ export function useContentMedia(input: {
     analyzeIllustrations,
     analyzeCover,
     updateCoverVariant,
+    seedFromGeneration,
   };
 }

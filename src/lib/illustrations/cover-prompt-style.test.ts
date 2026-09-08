@@ -2,9 +2,24 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   buildCoverContextHints,
+  enforceCoverAspectRatio,
   isHarnessArticleCover,
   isParvisBlindtestCover,
 } from "@/lib/illustrations/cover-prompt-style";
+
+test("enforceCoverAspectRatio rewrites 16:9 body-illustration ratio", () => {
+  const fixed = enforceCoverAspectRatio(
+    "简约扁平信息图，16:9，浅色背景，微信公众号配图。中央大标题。"
+  );
+  assert.match(fixed, /2\.35:1/);
+  assert.doesNotMatch(fixed, /16:9/);
+});
+
+test("enforceCoverAspectRatio prepends cover ratio when missing", () => {
+  const fixed = enforceCoverAspectRatio("中央写 Agent = Model + Harness，浅色背景。");
+  assert.match(fixed, /2\.35:1/);
+  assert.match(fixed, /1472×624/);
+});
 
 test("isHarnessArticleCover matches Harness 观点稿", () => {
   assert.equal(

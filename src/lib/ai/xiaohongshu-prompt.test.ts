@@ -76,6 +76,7 @@ test("conversion prompt preserves facts and requests both tones with outline cov
   assert.match(prompt, /暖米白|暖色/);
   assert.match(prompt, /冷蓝紫科技感|非冷色科技风/);
   assert.ok(prompt.includes(XIAOHONGSHU_FIXED_VISUAL_DIRECTION));
+  assert.match(prompt, /整组图片统一不显示页码和角标/);
 });
 
 test("Xiaohongshu review prompt covers source facts subject coverage and image continuity", () => {

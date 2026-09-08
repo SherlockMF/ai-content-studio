@@ -24,3 +24,13 @@ test("blindtest plan detection and icon prompt injection", () => {
   assert.match(prompt, /严禁/);
   assert.match(prompt, /文具静物|notebook|mockup|禁止用乱码/);
 });
+
+test("render prompt overrides legacy corner numbers without removing factual numbers", () => {
+  const prompt = buildXiaohongshuRenderPrompt({
+    index: 4, role: "content", objective: "说明", composition: "卡片",
+    overlayText: "25 项任务", prompt: "右上角标 01/04，正文 25 项任务",
+  }, "暖色");
+  assert.match(prompt, /整组图片统一不显示页码和角标/);
+  assert.match(prompt, /覆盖.*页码/);
+  assert.match(prompt, /25 项任务/);
+});

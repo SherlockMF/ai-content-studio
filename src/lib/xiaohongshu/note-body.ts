@@ -2,6 +2,8 @@ import type { XiaohongshuVariant } from "@/types/domain";
 import {
   clampXiaohongshuBody,
   clampXiaohongshuTitle,
+  countXiaohongshuChars,
+  XIAOHONGSHU_BODY_MAX_CHARS,
 } from "@/lib/xiaohongshu/limits";
 
 export function normalizeHashtagLabel(hashtag: string): string {
@@ -57,6 +59,16 @@ export function foldXiaohongshuVariant(variant: XiaohongshuVariant): Xiaohongshu
     }
   }
 
+  // 先为文末话题预留空间，避免限长把合法话题裁掉后触发格式校验失败。
+  const trailingTags = body.match(/(?:\n|^)\s*(?:#[^\s#]+(?:\s+#[^\s#]+)*)\s*$/u);
+  if (countXiaohongshuChars(body) > XIAOHONGSHU_BODY_MAX_CHARS && trailingTags) {
+    const tagLine = trailingTags[0].trim();
+    const budget = XIAOHONGSHU_BODY_MAX_CHARS - countXiaohongshuChars(tagLine) - 2;
+    if (budget > 0) {
+      const prose = body.slice(0, trailingTags.index).trimEnd();
+      body = `${Array.from(prose).slice(0, budget).join("").trimEnd()}\n\n${tagLine}`;
+    }
+  }
   body = clampXiaohongshuBody(body);
   hashtags = extractHashtagsFromText(body);
 

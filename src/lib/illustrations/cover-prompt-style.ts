@@ -1,18 +1,44 @@
-/** 公众号封面 GPT 提示词规范（2.35:1） */
+/** 公众号封面 GPT 提示词规范（头条 2.35:1，与 IMAGE_SIZE_BY_PURPOSE.cover 对齐） */
 
 import { BrandIconSlot } from "@/types/domain";
 
 export const BRAND_ICON_SLOTS: BrandIconSlot[] = ["Parvis", "Codex", "Cola", "WorkBuddy"];
 
+/** 微信头条封面比例；生图像素与 `IMAGE_SIZE_BY_PURPOSE.cover`（1472*624）一致 */
+export const WECHAT_COVER_ASPECT_RATIO = "2.35:1";
+export const WECHAT_COVER_SIZE_HINT = "1472×624";
+export const WECHAT_COVER_RATIO_LABEL = `${WECHAT_COVER_ASPECT_RATIO}（约 ${WECHAT_COVER_SIZE_HINT}）`;
+export const WECHAT_COVER_PROMPT_HEADER = `<!-- 公众号封面 GPT 提示词（简体中文，${WECHAT_COVER_RATIO_LABEL}）`;
+
 export const COVER_GPT_PROMPT_RULES = `
-封面生图提示词（2.35:1，约 900×383，安全区居中）额外要求：
-1. 图标须有明确语义隐喻（地图层、流程闭环、账本、盾牌等），禁止无含义随机几何体。
-2. 仅当上下文明确要求使用原品牌图标 reference 时，才写「直接使用用户上传的参考图」；否则不要要求用户附 logo PNG。
-3. 禁止把产品名误画成无关品牌商标（例如把 Cola 画成可口可乐）。
-4. 测评对比封面：分列展示对象时，每列「图标 + 名称 + 角色/关键词」；有分数则写出具体分数。
-5. 主标题、副标题须写出完整中文，字少而大；数据类须写出具体数字（若正文有）。
+封面生图提示词（${WECHAT_COVER_RATIO_LABEL}，安全区居中）额外要求：
+1. gptPrompt 必须明确写出比例「${WECHAT_COVER_ASPECT_RATIO}」或尺寸「${WECHAT_COVER_SIZE_HINT}」；禁止写 16:9、1:1、3:4 等正文配图比例。
+2. 这是头条封面，不是正文插图；不要套用正文配图构图。
+3. 图标须有明确语义隐喻（地图层、流程闭环、账本、盾牌等），禁止无含义随机几何体。
+4. 仅当上下文明确要求使用原品牌图标 reference 时，才写「直接使用用户上传的参考图」；否则不要要求用户附 logo PNG。
+5. 禁止把产品名误画成无关品牌商标（例如把 Cola 画成可口可乐）。
+6. 测评对比封面：分列展示对象时，每列「图标 + 名称 + 角色/关键词」；有分数则写出具体分数。
+7. 主标题、副标题须写出完整中文，字少而大；数据类须写出具体数字（若正文有）。
 `.trim();
 
+/** 纠正封面提示词里误写成正文配图比例的情况 */
+export function enforceCoverAspectRatio(gptPrompt: string): string {
+  let text = gptPrompt.trim();
+  if (!text) return text;
+
+  text = text
+    .replace(/16\s*[:：]\s*9/g, WECHAT_COVER_ASPECT_RATIO)
+    .replace(/16\s*\/\s*9/g, WECHAT_COVER_ASPECT_RATIO)
+    .replace(/约?\s*1280\s*[×xX*]\s*720/g, `约 ${WECHAT_COVER_SIZE_HINT}`)
+    .replace(/约?\s*900\s*[×xX*]\s*383/g, `约 ${WECHAT_COVER_SIZE_HINT}`);
+
+  const hasCoverAspect =
+    /2\.35\s*[:：]\s*1/.test(text) || /1472\s*[×xX*]\s*624/.test(text);
+  if (!hasCoverAspect) {
+    text = `微信公众号头条封面图，比例 ${WECHAT_COVER_RATIO_LABEL}，安全区居中。${text}`;
+  }
+  return text;
+}
 /** 追加到 GPT 生图提示词末尾：提醒用户在 ChatGPT 自行上传四张原图标 */
 export const MANUAL_BRAND_ICON_APPENDIX = `
 【使用原图标 — 必遵】

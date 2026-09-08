@@ -9,20 +9,25 @@ import { TopicWorkbench } from "@/components/shared/topic-workbench";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAppStore } from "@/lib/store/app-store";
+import { topicsWithoutWechatDraft } from "@/lib/workspace-lists";
 
 export default function TopicsPage() {
-  const { topics, deleteTopic, scheduleContent } = useAppStore();
+  const { topics, contentItems, deleteTopic, scheduleContent } = useAppStore();
   const [error, setError] = useState<string | null>(null);
+  const poolTopics = topicsWithoutWechatDraft(topics, contentItems);
 
   return (
     <AppShell title="选题">
       {error ? <ErrorState message={error} /> : null}
       <TopicWorkbench />
-      {topics.length === 0 ? (
-        <EmptyState title="暂无已保存选题" description="从上方热点研究流程生成后，选题会自动保存。" />
+      {poolTopics.length === 0 ? (
+        <EmptyState
+          title="选题池为空"
+          description="这里只放还没出稿的选题。已有稿件请去「稿件」页；热点研究生成后会自动进入选题池。"
+        />
       ) : (
         <div className="mt-4 grid gap-3 md:grid-cols-2">
-          {topics.map((topic) => (
+          {poolTopics.map((topic) => (
             <Card key={topic.id}>
               <CardHeader>
                 <CardTitle className="text-base">{topic.title}</CardTitle>
@@ -60,7 +65,7 @@ export default function TopicsPage() {
                         createdAt: new Date().toISOString(),
                         updatedAt: new Date().toISOString(),
                       });
-                      toast.success(`已加入排期（${scheduledAt.slice(0, 10)}）`);
+                      toast.success(`已加入排期 ${scheduledAt.slice(0, 10)}`);
                     } catch (err) {
                       const message = err instanceof Error ? err.message : "排期失败";
                       setError(message);

@@ -8,8 +8,9 @@ import {
   Topic,
   Workspace,
 } from "@/types/domain";
-import { nextFridays } from "@/lib/schedule";
+import { nextWeekdays } from "@/lib/schedule";
 import { ARTICLE_GIS, ARTICLE_HARNESS } from "@/lib/seed/articles";
+import { ORG_ARCHITECTURE_SERIES } from "@/lib/seed/org-architecture-series";
 import { PARVIS_BLINDTEST_SUPPLEMENTARY_NOTES } from "@/lib/content-supplementary-notes";
 
 const now = new Date().toISOString();
@@ -20,21 +21,15 @@ function noonIso(date: Date) {
   return d.toISOString();
 }
 
-/** GIS 篇：今天发布；Harness 篇：下周五 */
-function scheduleTodayAndNextFriday() {
-  const today = noonIso(new Date());
-  const fridays = nextFridays(new Date(), 2);
-  // 若今天就是周五，nextFridays[0] 是今天，下一周五是 [1]
-  // 若今天不是周五，[0] 是即将到来的周五；用户要求「下周五」，在今天已是周五时应取 [1]
-  const nextFriday =
-    new Date().getDay() === 5
-      ? noonIso(fridays[1] ?? fridays[0])
-      : noonIso(fridays[0]);
-  return { today, nextFriday };
-}
+/** 已归档两篇：放在组织系列之前，避免占 9/7 起的档期 */
+const SCHEDULE_GIS = noonIso(new Date(2026, 7, 28)); // 2026-08-28
+const SCHEDULE_HARNESS = noonIso(new Date(2026, 8, 4)); // 2026-09-04
 
-const { today: SCHEDULE_TODAY, nextFriday: SCHEDULE_NEXT_FRIDAY } =
-  scheduleTodayAndNextFriday();
+/** 组织系列：从 2026-09-07 起按 01→06 顺序，连续工作日每天一篇 */
+const ORG_SERIES_START = new Date(2026, 8, 7);
+const ORG_SERIES_WEEKDAYS = nextWeekdays(ORG_SERIES_START, ORG_ARCHITECTURE_SERIES.length).map(
+  noonIso
+);
 
 export const DEMO_WORKSPACE: Workspace = {
   id: "ws_demo",
@@ -116,6 +111,21 @@ export const DEMO_TOPICS: Topic[] = [
     scheduled: true,
     createdAt: now,
   },
+  ...ORG_ARCHITECTURE_SERIES.map((article) => ({
+    id: `topic_org_${article.id}`,
+    workspaceId: DEMO_WORKSPACE.id,
+    title: article.title,
+    coreViewpoint: article.coreViewpoint,
+    targetAudience: DEMO_PUBLISH_VOICE.audience,
+    painPoint: article.painPoint,
+    section: article.section,
+    platform: ["wechat"] as Topic["platform"],
+    contentGoal: "建立专业信任",
+    recommendedFormat: "公众号图文",
+    openingHook: article.openingHook,
+    scheduled: true,
+    createdAt: now,
+  })),
 ];
 
 export const DEMO_CONTENT_ITEMS: ContentItem[] = [
@@ -131,9 +141,9 @@ export const DEMO_CONTENT_ITEMS: ContentItem[] = [
     body: ARTICLE_GIS.body,
     cta: "如果你也在对比城市规划 Agent，欢迎关注，下期继续写 Harness Engineering。",
     supplementaryNotes: PARVIS_BLINDTEST_SUPPLEMENTARY_NOTES,
-    status: "待发布",
-    scheduledAt: SCHEDULE_TODAY,
-    publishedAt: null,
+    status: "已归档",
+    scheduledAt: SCHEDULE_GIS,
+    publishedAt: now,
     createdAt: now,
     updatedAt: now,
   },
@@ -148,12 +158,43 @@ export const DEMO_CONTENT_ITEMS: ContentItem[] = [
     coverCopy: ARTICLE_HARNESS.coverCopy,
     body: ARTICLE_HARNESS.body,
     cta: "下期继续拆专业 Agent 的工程问题。欢迎关注。",
-    status: "待发布",
-    scheduledAt: SCHEDULE_NEXT_FRIDAY,
-    publishedAt: null,
+    status: "已归档",
+    scheduledAt: SCHEDULE_HARNESS,
+    publishedAt: now,
     createdAt: now,
     updatedAt: now,
   },
+  ...ORG_ARCHITECTURE_SERIES.map((article, index) => {
+    const baseline = {
+      title: article.title,
+      body: article.body,
+      digest: article.digest,
+      coverCopy: article.coverCopy,
+      savedAt: now,
+    };
+    return {
+      id: `content_org_${article.id}`,
+      workspaceId: DEMO_WORKSPACE.id,
+      topicId: `topic_org_${article.id}`,
+      platform: "wechat" as const,
+      source: "imported" as const,
+      title: article.title,
+      digest: article.digest,
+      coverCopy: article.coverCopy,
+      body: article.body,
+      cta:
+        index < ORG_ARCHITECTURE_SERIES.length - 1
+          ? `下期继续写「AI 正在重新设计公司 · ${String(index + 2).padStart(2, "0")}/06」。欢迎关注。`
+          : "本系列到此告一段落。欢迎关注，后续继续拆 AI 时代的组织变化。",
+      supplementaryNotes: article.supplementaryNotes,
+      importBaseline: baseline,
+      status: "编辑中" as const,
+      scheduledAt: ORG_SERIES_WEEKDAYS[index] ?? null,
+      publishedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }),
 ];
 
 export const DEMO_VERSIONS: ContentVersion[] = DEMO_CONTENT_ITEMS.map((item, i) => ({

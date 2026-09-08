@@ -11,6 +11,8 @@ import {
   countXiaohongshuChars,
 } from "@/lib/xiaohongshu/limits";
 import { extractHashtagsFromText } from "@/lib/xiaohongshu/note-body";
+import { parseDataUrl } from "@/lib/export-assets";
+import { XIAOHONGSHU_NO_PAGE_BADGES } from "@/lib/ai/xiaohongshu-prompt";
 
 export interface XiaohongshuPublishCheck {
   id: "title" | "body" | "hashtags" | "images" | "rendered-images" | "review";
@@ -141,6 +143,7 @@ function buildPromptBlock(image: XiaohongshuImagePrompt): string {
     `图中文字：${image.overlayText.trim()}`,
     `构图：${image.composition.trim()}`,
     `完整提示词：${image.prompt.trim()}`,
+    XIAOHONGSHU_NO_PAGE_BADGES,
   ].join("\n");
 }
 
@@ -168,6 +171,7 @@ export function buildXiaohongshuPublishMarkdown(
       `- 构图：${image.composition.trim()}`,
       image.imageUrl ? `- 配图：${image.imageUrl}` : "- 配图：未生成",
       `- 完整提示词：${image.prompt.trim()}`,
+      `- ${XIAOHONGSHU_NO_PAGE_BADGES}`,
     ].join("\n")
   );
 
@@ -193,4 +197,64 @@ export function buildXiaohongshuPublishMarkdown(
   ]
     .join("\n")
     .trimEnd();
+}
+
+/** 发布包必须含全部原图，不能把下载失败的图片悄悄替换成链接。 */
+export async function buildXiaohongshuPublishBundle(
+  data: XiaohongshuDraftData,
+  tone: XiaohongshuTone,
+  sourceTitle?: string
+) {
+  const imagePlan = [...data.imagePlan].sort((a, b) => a.index - b.index);
+  if (!isImagePlanComplete(imagePlan)) throw new Error("图片规划不完整，请先完成图片规划");
+  for (const image of imagePlan) {
+    if (!image.imageUrl?.trim()) throw new Error(`图 ${image.index} 未生成，请先补全配图`);
+  }
+
+  const images = await Promise.all(imagePlan.map(async (image) => {
+    try {
+      const url = image.imageUrl!.trim();
+      let bytes: Uint8Array;
+      let mime: string;
+      if (url.startsWith("data:")) {
+        const parsed = parseDataUrl(url);
+        if (!parsed) throw new Error("图片数据无效");
+        bytes = parsed.bytes;
+        mime = parsed.mime;
+      } else {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        mime = response.headers.get("content-type")?.split(";")[0].trim().toLowerCase() ?? "";
+        bytes = new Uint8Array(await response.arrayBuffer());
+      }
+      const ext = ({ "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" } as Record<string, string>)[mime];
+      if (!ext || bytes.length === 0) throw new Error("未读取到有效图片文件");
+      return { image, bytes, path: `images/${String(image.index).padStart(2, "0")}-${image.role}.${ext}` };
+    } catch (error) {
+      throw new Error(`图 ${image.index} 导出失败：${error instanceof Error ? error.message : "无法读取图片"}`);
+    }
+  }));
+
+  const JSZip = (await import("jszip")).default;
+  const zip = new JSZip();
+  for (const image of images) zip.file(image.path, image.bytes);
+  const addCopy = (prefix: string, variant: XiaohongshuVariant) => {
+    zip.file(`${prefix}标题.txt`, variant.title.trim());
+    zip.file(`${prefix}正文.txt`, buildXiaohongshuBodyCopyText(variant));
+    zip.file(`${prefix}标签.txt`, extractHashtagsFromText(variant.body).map((tag) => `#${tag}`).join(" "));
+    zip.file(`${prefix}完整笔记.txt`, buildXiaohongshuNoteText(variant));
+  };
+  addCopy("", data.variants[tone]);
+  addCopy("备选文案/", data.variants[tone === "professional" ? "social" : "professional"]);
+  zip.file("发布说明.md", buildXiaohongshuPublishMarkdown({
+    ...data,
+    imagePlan: images.map(({ image, path }) => ({ ...image, imageUrl: `./${path}` })),
+  }, tone, sourceTitle));
+  const baseName = data.variants[tone].title.trim()
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "")
+    .replace(/\s+/g, "-").slice(0, 80).replace(/[. ]+$/g, "") || "xiaohongshu";
+  return {
+    blob: await zip.generateAsync({ type: "blob" }),
+    fileName: `${baseName}-xiaohongshu.zip`,
+  };
 }
