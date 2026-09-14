@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { KnowledgeReferencePicker } from "@/components/shared/knowledge-reference-picker";
 import { withLLMPayload } from "@/lib/ai/llm-settings";
+import { collectPublishedArticles, type TopicDeduplication } from "@/lib/ai/published-topic-check";
 import { DEFAULT_SECTIONS } from "@/lib/mock-data";
 import { useAppStore } from "@/lib/store/app-store";
 import { HotspotItem, HotspotSnapshot } from "@/lib/hotspots/types";
@@ -36,6 +37,8 @@ export function TopicWorkbench() {
     publishVoice,
     materials,
     topics,
+    contentItems,
+    storeHydrated,
     addTopics,
     upsertContent,
     addVersion,
@@ -45,6 +48,7 @@ export function TopicWorkbench() {
   const [loadingHotspots, setLoadingHotspots] = useState(false);
   const [selectedHotspotId, setSelectedHotspotId] = useState<string | null>(null);
   const [directions, setDirections] = useState<TopicDirection[]>([]);
+  const [deduplication, setDeduplication] = useState<TopicDeduplication | null>(null);
   const [leverageAngle, setLeverageAngle] = useState("");
   const [selectedDirectionId, setSelectedDirectionId] = useState<string | null>(null);
   const [loadingDirections, setLoadingDirections] = useState(false);
@@ -87,6 +91,7 @@ export function TopicWorkbench() {
       if (!res.ok) throw new Error(json.message || "热点抓取失败");
       setSnapshot(json.snapshot);
       setDirections([]);
+      setDeduplication(null);
       setLeverageAngle("");
       setSelectedDirectionId(null);
       if (json.snapshot.items[0]) setSelectedHotspotId(json.snapshot.items[0].id);
@@ -99,11 +104,15 @@ export function TopicWorkbench() {
   };
 
   const generateDirections = async () => {
+    if (!storeHydrated) return;
     if (!selectedHotspot) {
       toast.error("请先选择一条热点");
       return;
     }
     setLoadingDirections(true);
+    setDirections([]);
+    setSelectedDirectionId(null);
+    setDeduplication(null);
     try {
       const res = await fetch("/api/ai/research-directions", {
         method: "POST",
@@ -114,6 +123,7 @@ export function TopicWorkbench() {
             materials,
             knowledgeReferences,
             hotspot: selectedHotspot,
+            publishedArticles: collectPublishedArticles(contentItems, topics),
           })
         ),
       });
@@ -129,10 +139,12 @@ export function TopicWorkbench() {
         })
       );
       setDirections(nextDirections);
+      setDeduplication(json.deduplication ?? null);
       setLeverageAngle(json.leverageAngle ?? "");
       setSelectedDirectionId(nextDirections[0]?.id ?? null);
       setKnowledgeReferences([]);
-      toast.success(`已生成 ${nextDirections.length} 个话题方向`);
+      if (nextDirections.length) toast.success(`去重后保留 ${nextDirections.length} 个话题方向`);
+      else toast.info("本批方向与已发布内容重复，请换一批或选择其他热点");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "方向生成失败");
     } finally {
@@ -285,6 +297,7 @@ export function TopicWorkbench() {
                       onSelect={() => {
                         setSelectedHotspotId(item.id);
                         setDirections([]);
+                        setDeduplication(null);
                         setSelectedDirectionId(null);
                         setLeverageAngle("");
                         setKnowledgeReferences([]);
@@ -315,10 +328,10 @@ export function TopicWorkbench() {
           ) : null}
           <Button
             variant="secondary"
-            disabled={!selectedHotspot || loadingDirections}
+            disabled={!storeHydrated || !selectedHotspot || loadingDirections}
             onClick={generateDirections}
           >
-            {loadingDirections ? "生成中..." : "生成三个话题方向"}
+            {loadingDirections ? "生成并检查重复中..." : "生成三个话题方向"}
           </Button>
           <p className="text-xs text-slate-500">
             出稿风格（受众、语气）在
@@ -330,10 +343,19 @@ export function TopicWorkbench() {
         </CardContent>
       </Card>
 
+      {deduplication ? (
+        <div className="space-y-2 rounded-xl border p-4 text-sm" role="status">
+          <p>{deduplication.checkedCount ? `已对照 ${deduplication.checkedCount} 篇已发布／归档稿件，剔除 ${deduplication.removed.length} 个重复方向。` : "暂无已发布稿件，本次未做历史比对。"}</p>
+          {deduplication.removed.map((item, index) => (
+            <p key={index}>「{item.title}」与「{item.publishedTitle}」重复：{item.reason}</p>
+          ))}
+        </div>
+      ) : null}
+
       {directions.length ? (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">三个话题方向</CardTitle>
+            <CardTitle className="text-base">话题方向（{directions.length}）</CardTitle>
             {leverageAngle ? (
               <p className="text-sm text-slate-600">蹭热点角度：{leverageAngle}</p>
             ) : null}

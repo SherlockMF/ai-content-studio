@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/shared/app-shell";
+import { LocalDataBackup } from "@/components/shared/local-data-backup";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -276,6 +277,7 @@ export default function SettingsPage() {
             <p>2. 模型调用优先使用 `.env.local` 的 DEEPSEEK_API_KEY；未配置时才用本页浏览器 Key。已取消 Mock。</p>
             <p>3. 选题页内嵌热点研究 → 三方向 → 出稿；人设来自设置页预设。</p>
             <div className="flex gap-2 pt-2">
+              <LocalDataBackup />
               <Button
                 variant="outline"
                 disabled={loading !== null}

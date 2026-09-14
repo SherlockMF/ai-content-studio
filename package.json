@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --port 52728",
     "build": "next build",
-    "start": "next start",
+    "start": "next start --port 52728",
     "lint": "eslint",
     "test": "tsx --test src/**/*.test.ts"
   },
@@ -50,6 +50,6 @@
     "eslint-config-next": "16.2.12",
     "tailwindcss": "^4",
     "tsx": "^4.23.13",
-    "typescript": "^5"
+    "typescript": "^5.9.3"
   }
 }

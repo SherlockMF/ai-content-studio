@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { publishedArticlesSchema } from "@/lib/ai/published-topic-check";
 import { buildHarnessFromVoice } from "@/lib/ai/build-harness";
 import { generateResearchDirections } from "@/lib/ai/generators";
 import { DEMO_MATERIALS, DEMO_PUBLISH_VOICE } from "@/lib/mock-data";
@@ -8,6 +9,8 @@ import { formatKnowledgeReferences } from "@/lib/knowledge/prompt-references";
 
 export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
+  const history = publishedArticlesSchema.safeParse(body.publishedArticles ?? []);
+  if (!history.success) return NextResponse.json({ message: "已发布稿件数据不完整，请刷新后重试" }, { status: 400 });
   const voice = (body.voice ?? DEMO_PUBLISH_VOICE) as PublishVoice;
   const materials = (body.materials ?? DEMO_MATERIALS) as MaterialItem[];
   const hotspot = body.hotspot as
@@ -33,6 +36,7 @@ export async function POST(request: Request) {
       harness,
       hotspot,
       materials: [...materialBodies, ...knowledgeBodies],
+      publishedArticles: history.data,
       llm: body.llm,
     });
     return NextResponse.json(result);

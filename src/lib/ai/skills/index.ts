@@ -1,4 +1,5 @@
 import { HUMAN_WRITING_SKILL_PROMPT } from "./human-writing";
+import { PUBLISHED_CONTENT_RULES } from "@/lib/ai/published-content-rules";
 import { KHAZIX_WRITER_SKILL_PROMPT } from "./khazix-writer";
 
 export const DE_AI_SKILL_SOURCES = [
@@ -31,6 +32,7 @@ ${KHAZIX_WRITER_SKILL_PROMPT}
 - 只改写用户给出的正文（可保留 Markdown 结构，但尽量少用小标题堆砌）
 - 不要解释你改了什么
 - 不要输出内部检查清单
+${PUBLISHED_CONTENT_RULES}
 `.trim();
 }
 

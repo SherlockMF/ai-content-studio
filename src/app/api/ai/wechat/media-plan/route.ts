@@ -24,6 +24,7 @@ export async function POST(request: Request) {
 {"images":[{"sourceIndex":null,"action":"generate","purpose":"cover","altText":"公众号封面","anchorSnippet":"","prompt":"完整生图提示词"}]}
 规则：恰好一张 cover，至少三张 illustration，总数不超过12。新图 sourceIndex=null；旧图引用下方从0开始的 index，每张已有真实图必须恰好引用一次，不得漏图。
 对已有图，用原提示词、图中文字及周围上下文，对照新正文的主题、关键数字、结论：仍匹配则 action=keep；只调整措辞不得重生成；主题/数字/结论冲突才 action=generate。缺图、待替换地址一律 generate。缺少的封面或正文图要补齐。
+例外：已有图中文字含内部课件页码、素材出处或发布前核验提醒时，必须 action=generate 清除残留，不能按“只调整措辞”保留。新提示词按发布内容与内部资料隔离规则重写。
 keep 必须保留旧图原 prompt（若原 prompt 为空则写出图片已有含义），不得在描述中冒充已改变图中文字。generate 提供对应新正文的完整提示词，不编造事实。
 illustration 的 anchorSnippet 必须是从下方新正文逐字摘录的完整段落或段落末句，图片插在其后；cover 的 anchorSnippet 为空。按封面、正文阅读顺序排列。
 封面比例2.35:1，正文图16:9。不得画页码角标。正文是唯一事实基线。

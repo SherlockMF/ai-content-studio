@@ -5,6 +5,7 @@ import type {
   XiaohongshuVariant,
 } from "@/types/domain";
 import { BLINDTEST_XHS_ICON_PROMPT } from "@/lib/illustrations/cover-prompt-style";
+import { PUBLISHED_CONTENT_RULES } from "@/lib/ai/published-content-rules";
 
 /** 全账号统一的小红书配图视觉系统；转换与重规划都强制使用，不得按题材另起科技风。 */
 export const XIAOHONGSHU_FIXED_VISUAL_DIRECTION =
@@ -46,6 +47,7 @@ export function buildXiaohongshuOutlinePrompt(input: {
   supplementaryNotes?: string;
 }): string {
   return `Task: extractXiaohongshuOutline
+${PUBLISHED_CONTENT_RULES}
 从下面的公众号长文抽出小红书改编大纲。只抽取，不写正文。
 
 输出 JSON 格式：
@@ -152,6 +154,7 @@ ${XIAOHONGSHU_FIXED_VISUAL_DIRECTION}
 目标形态：一组 3:4 竖版「可滑动讲解页」，像产品介绍/干货分享笔记：暖米白底、大标题、短副文、柔和彩色小图标、圆角信息块、界面示意或能力宫格。气质偏温暖、好读、生活感知识分享，不要冷冰冰科技海报。
 图片默认 3:4、1080×1440；首张 role=cover，末张 role=ending，index 从 1 连续递增。
 ${XIAOHONGSHU_NO_PAGE_BADGES}
+${PUBLISHED_CONTENT_RULES}
 每张 prompt 都必须包含上述无页码角标要求。
 根据内容自动规划 5～8 张，中间 role=content，每张只讲一个点，像笔记多图第 1～N 页。
 图片优先覆盖：封面总命题、这是什么/为什么重要、主体或概念对照、关键能力拆解、界面或场景示意、结论收束。

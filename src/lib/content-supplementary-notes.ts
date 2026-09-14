@@ -4,7 +4,8 @@ export function buildSupplementaryNotesPrompt(notes: string | undefined) {
   const trimmed = notes?.trim();
   if (!trimmed) return "";
   return `
-作者补充信息（改稿时必须融入正文，替换文中过时/匿名表述；不得与下列事实矛盾）：
+作者补充信息（仅融入适合公开的业务事实与观点，替换过时/匿名表述；不得与已确认的事实矛盾）：
+课程锚点、课件页码等来源标记和编辑提醒仅供内部参考，不得复制到正文、标题、收尾或图片提示词；不把待核验数据改成已确认事实。
 ${trimmed}
 `.trim();
 }

@@ -7,6 +7,10 @@ interface DeepSeekProviderOptions {
   baseUrl?: string;
 }
 
+function validationDetails(error: ZodError) {
+  return error.issues.slice(0, 6).map((issue) => `${issue.path.join(".") || "JSON"}：${issue.message}`).join("；");
+}
+
 /**
  * OpenAI-compatible DeepSeek Chat Completions provider.
  * Model IDs: deepseek-v4-flash / deepseek-v4-pro
@@ -50,15 +54,15 @@ export class DeepSeekProvider implements LLMProvider {
             ...withJsonHint,
             {
               role: "user",
-              content: "上一次输出格式不符合要求，请重新输出合法 JSON 对象。",
+              content: `上一次输出未通过校验：${error instanceof ZodError ? validationDetails(error) : "JSON 格式不合法"}。请修正上述字段，重新输出完整合法 JSON 对象，不要只输出修正的字段。`,
             },
           ],
           true
         );
         return zodSchema.parse(this.parseJson(retryText));
       } catch (retryError) {
-        if (retryError instanceof ZodError || error instanceof ZodError) {
-          throw new Error("模型返回格式异常，请稍后重试或缩小任务范围。");
+        if (retryError instanceof ZodError) {
+          throw new Error(`模型返回内容未通过校验：${validationDetails(retryError)}`);
         }
         throw retryError;
       }

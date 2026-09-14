@@ -1,4 +1,5 @@
 import { getLLMProvider } from "@/lib/ai/providers";
+import { checkPublishedTopics, publishedTopicsPrompt, type PublishedArticle } from "@/lib/ai/published-topic-check";
 import { LLMClientSettings } from "@/lib/ai/llm-settings";
 import { LLMMessage } from "@/lib/ai/providers/types";
 import {
@@ -141,6 +142,7 @@ export async function generateTopics(
     harness: GenerationHarness;
     materials: string[];
     historyTitles: string[];
+    publishedArticles?: PublishedArticle[];
     count: number;
   } & WithLLM
 ) {
@@ -149,10 +151,12 @@ export async function generateTopics(
     input.voice,
     input.harness,
     { materials: input.materials, historyTitles: input.historyTitles },
-    `Task: generateTopics\n请输出 ${input.count} 条结构化选题，默认平台公众号，覆盖不同内容板块并避免重复。`
+    `Task: generateTopics\n请输出 ${input.count} 条结构化选题，默认平台公众号，覆盖不同内容板块并避免重复。\n${publishedTopicsPrompt(input.publishedArticles ?? [])}`
   );
 
-  return provider.generateStructuredOutput(messages, topicsOutputSchema);
+  const result = topicsOutputSchema.parse(await provider.generateStructuredOutput(messages, topicsOutputSchema));
+  const checked = await checkPublishedTopics(provider, result.topics, input.publishedArticles ?? []);
+  return { ...result, topics: checked.items, deduplication: checked.deduplication };
 }
 
 export async function generateResearchDirections(
@@ -161,6 +165,7 @@ export async function generateResearchDirections(
     harness: GenerationHarness;
     hotspot: Pick<HotspotItem, "id" | "title" | "url" | "summary" | "leverageHint">;
     materials: string[];
+    publishedArticles?: PublishedArticle[];
   } & WithLLM
 ) {
   const provider = getLLMProvider(input.llm);
@@ -172,10 +177,13 @@ export async function generateResearchDirections(
 基于下面这条 AI 相关热点，为当前账号人设输出：
 1) leverageAngle：一句话说明如何蹭这个热点、又不偏离账号定位
 2) directions：恰好 3 个不同切口的话题方向。每个方向要有 title、angle、whyNow、targetAudience、outline（4-6 条提纲）、coreViewpoint、section（四板块之一）、openingHook。
-要求三个方向差异明显，避免同义重复。${buildHotspotPrompt(input.hotspot)}`
+要求三个方向差异明显，避免同义重复。${buildHotspotPrompt(input.hotspot)}
+${publishedTopicsPrompt(input.publishedArticles ?? [])}`
   );
 
-  return provider.generateStructuredOutput(messages, researchDirectionsOutputSchema);
+  const result = researchDirectionsOutputSchema.parse(await provider.generateStructuredOutput(messages, researchDirectionsOutputSchema));
+  const checked = await checkPublishedTopics(provider, result.directions, input.publishedArticles ?? []);
+  return { ...result, directions: checked.items, deduplication: checked.deduplication };
 }
 
 export async function generateWechatArticle(
@@ -664,7 +672,10 @@ export async function refineCoverPrompt(
   } & WithLLM
 ) {
   const provider = getLLMProvider(input.llm);
-  const refined = await provider.generateStructuredOutput(
+  const refined = await provider.generateStructuredOutput<{
+    gptPrompt: string;
+    overlayText?: string;
+  }>(
     [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: buildCoverPromptRefinePrompt(input) },

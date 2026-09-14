@@ -120,7 +120,7 @@ export const DEMO_TOPICS: Topic[] = [
     painPoint: article.painPoint,
     section: article.section,
     platform: ["wechat"] as Topic["platform"],
-    contentGoal: "建立专业信任",
+    contentGoal: "建立专业信任" as const,
     recommendedFormat: "公众号图文",
     openingHook: article.openingHook,
     scheduled: true,

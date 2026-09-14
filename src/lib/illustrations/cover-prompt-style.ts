@@ -1,6 +1,7 @@
 /** 公众号封面 GPT 提示词规范（头条 2.35:1，与 IMAGE_SIZE_BY_PURPOSE.cover 对齐） */
 
 import { BrandIconSlot } from "@/types/domain";
+import { PUBLISHED_CONTENT_RULES } from "@/lib/ai/published-content-rules";
 
 export const BRAND_ICON_SLOTS: BrandIconSlot[] = ["Parvis", "Codex", "Cola", "WorkBuddy"];
 
@@ -19,6 +20,7 @@ export const COVER_GPT_PROMPT_RULES = `
 5. 禁止把产品名误画成无关品牌商标（例如把 Cola 画成可口可乐）。
 6. 测评对比封面：分列展示对象时，每列「图标 + 名称 + 角色/关键词」；有分数则写出具体分数。
 7. 主标题、副标题须写出完整中文，字少而大；数据类须写出具体数字（若正文有）。
+${PUBLISHED_CONTENT_RULES}
 `.trim();
 
 /** 纠正封面提示词里误写成正文配图比例的情况 */

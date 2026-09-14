@@ -16,7 +16,7 @@ const topic = (id: string): Topic => ({
   painPoint: "p",
   section: "AI 通识",
   platform: ["wechat"],
-  contentGoal: "g",
+  contentGoal: "建立专业信任",
   recommendedFormat: "f",
   openingHook: "h",
   scheduled: false,

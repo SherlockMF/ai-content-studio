@@ -1068,7 +1068,7 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
 
   const requestXiaohongshuConversion = () => {
     if (xiaohongshuConversionPending) return;
-    if (!hasText(sourceContentDraft?.body)) {
+    if (!sourceContentDraft || !hasText(sourceContentDraft.body)) {
       toast.error("请先填写公众号正文");
       return;
     }
