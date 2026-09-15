@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -53,7 +54,8 @@ function cellToneClass(tone: HeatTone) {
 }
 
 export function ScheduleBoard() {
-  const { contentItems, upsertContent, setContentSchedule } = useAppStore();
+  const { contentItems, topics, upsertContent, setContentSchedule, autoScheduleEnabled,
+    setAutoScheduleEnabled, replanSchedule, unlockContentSchedule, storeHydrated } = useAppStore();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editPlatform, setEditPlatform] = useState<Platform>("wechat");
@@ -110,12 +112,39 @@ export function ScheduleBoard() {
       updatedAt: new Date().toISOString(),
     });
     setContentSchedule(activeItem.id, editDate || null, { cascade: true });
-    toast.success(editDate ? "排期已更新，后续稿已顺延" : "已取消排期并重排其余稿");
+    toast.success(editDate ? "排期已手动锁定，其余自动档期已调整" : "已取消并锁定为不排期，可重新纳入自动排期");
     setActiveId(null);
   };
 
   return (
     <div className="space-y-3">
+      <section className="space-y-3 rounded-xl border bg-white p-4" aria-label="自动排期">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-medium">自动排期</h3>
+            <p className="text-xs text-slate-500">每个平台每个工作日一篇；根据标题、观点和板块关联安排，错开相似题材，兼顾热点和完成度。仅安排时间，不自动发布。</p>
+          </div>
+          <Button disabled={!storeHydrated} onClick={() => { replanSchedule(); toast.success("已更新稿件排期与选题预排，新增选题将自动寻找合适档期"); }}>自动排期 / 重新规划</Button>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox checked={Boolean(autoScheduleEnabled)} disabled={!storeHydrated}
+            onCheckedChange={checked => setAutoScheduleEnabled(Boolean(checked))} />
+          新增选题和稿件时自动调整预排
+        </label>
+        <p className="text-xs text-slate-500">已发布和手动排期保留。旧稿已有日期默认保留，可在排期详情中「纳入自动排期」。预排仍可手动调整。</p>
+        <details>
+          <summary className="cursor-pointer text-sm">查看自动档期和选题预排</summary>
+          <div className="mt-2 max-h-72 space-y-2 overflow-y-auto">
+            {[
+              ...contentItems.filter(item => item.scheduleMode === "auto" && item.scheduledAt && !isPublishedLikeStatus(item.status)).map(item => ({ id: item.id, title: item.title, date: item.scheduledAt!, reason: item.scheduleReason, label: item.platform === "wechat" ? "公众号稿件" : item.platform === "xiaohongshu" ? "小红书稿件" : "抖音稿件", topicId: item.topicId })),
+              ...topics.filter(topic => topic.suggestedScheduledAt && !contentItems.some(item => item.topicId === topic.id && item.platform === "wechat")).map(topic => ({ id: topic.id, title: topic.title, date: topic.suggestedScheduledAt!, reason: topic.scheduleReason, label: "选题预排 · 待写稿", topicId: topic.id })),
+            ].sort((a, b) => a.date.localeCompare(b.date)).map(item => <div key={item.id} className="rounded border p-2 text-xs">
+              <Link className="font-medium underline" href={`/content?topicId=${encodeURIComponent(item.topicId)}`}>{formatScheduleLabel(item.date)} · {item.title}</Link>
+              <p className="mt-1 text-slate-500">{item.label} · {item.reason}</p>
+            </div>)}
+          </div>
+        </details>
+      </section>
       <div className="overflow-x-auto rounded-xl border border-slate-800 bg-[#0b0f14] p-4 text-slate-200 shadow-sm">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-sm font-medium text-slate-100">发布排期</h3>
@@ -225,7 +254,11 @@ export function ScheduleBoard() {
           </SheetHeader>
           {activeItem ? (
             <div className="space-y-4 px-4 pb-4">
-              <p className="text-xs text-slate-500">{formatScheduleLabel(activeItem.scheduledAt)}</p>
+              <p className="text-xs text-slate-500">{formatScheduleLabel(activeItem.scheduledAt)} · {activeItem.scheduleMode === "auto" ? "自动排期" : "手动保留"}</p>
+              {activeItem.scheduleReason ? <p className="text-xs text-slate-500">{activeItem.scheduleReason}</p> : null}
+              {!isPublishedLikeStatus(activeItem.status) && !activeItem.publishedAt ? <Button variant="outline" onClick={() => {
+                unlockContentSchedule(activeItem.id); setActiveId(null); toast.success("已纳入自动排期");
+              }}>纳入自动排期</Button> : null}
               <div className="space-y-1">
                 <label className="text-sm">标题</label>
                 <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />

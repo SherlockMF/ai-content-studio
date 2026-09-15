@@ -1,5 +1,7 @@
 "use client";
 
+import { ReviewIssuesPanel } from "@/components/shared/review-issues-panel";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { XiaohongshuPublishPanel } from "@/components/shared/xiaohongshu-publish-panel";
@@ -800,34 +802,28 @@ export function XiaohongshuEditor({
         imageProgress={imageProgress}
       />
 
-      {currentReview ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">小红书质检 · {currentReview.score} 分</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {currentReview.issues.length === 0 ? (
-              <p className="text-sm text-slate-600">未发现明显问题，可以进入排期发布。</p>
-            ) : (
-              <ul className="space-y-2">
-                {currentReview.issues.map((issue, index) => (
-                  <li
-                    key={`${issue.dimension}-${index}`}
-                    className="rounded-md border bg-slate-50 px-3 py-2 text-sm"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-slate-800">{issue.dimension}</span>
-                      <Badge variant={issue.severity === "high" ? "destructive" : "secondary"}>
-                        {issue.severity === "high" ? "必须改" : issue.severity === "medium" ? "建议改" : "可选"}
-                      </Badge>
-                    </div>
-                    <p className="mt-1 text-slate-600">{issue.suggestion}</p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
+      {latestReview ? (
+        <ReviewIssuesPanel key={`${latestReview.id}-${tone}`} review={latestReview}
+          draft={{ platform: "xiaohongshu", title: variant.title, body: variant.body,
+            visualDirection: data.visualDirection, imagePlan: data.imagePlan }}
+          sourceBody={sourceContent?.body} supplementaryNotes={sourceContent?.supplementaryNotes}
+          targetAudience={publishVoice.audience} stale={!currentReview}
+          disabled={reviewing || converting || imageRegenerating || imageRendering}
+          onApply={(revised) => {
+            const current = draftRef.current;
+            if (!current?.xiaohongshu) return;
+            const next = saveXiaohongshuVariant(current, tone,
+              { ...current.xiaohongshu.variants[tone], title: revised.title, body: revised.body },
+              new Date().toISOString());
+            if (!next.xiaohongshu) return;
+            next.xiaohongshu.imagePlan = revised.imagePlan ?? next.xiaohongshu.imagePlan;
+            next.xiaohongshu.visualDirection = revised.visualDirection ?? next.xiaohongshu.visualDirection;
+            next.coverCopy = next.xiaohongshu.imagePlan[0]?.overlayText ?? next.coverCopy;
+            next.status = "编辑中";
+            draftRef.current = next;
+            setDraft(next);
+            onSave(next, "ai_rewrite");
+          }} />
       ) : null}
     </div>
   );

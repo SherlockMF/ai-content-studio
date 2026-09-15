@@ -14,6 +14,7 @@ import {
   buildXiaohongshuPublishBundle,
 } from "@/lib/xiaohongshu/publish";
 import { countMissingXiaohongshuImages } from "@/lib/xiaohongshu/generate-images";
+import { copyNotePreservingLines } from "@/lib/xiaohongshu/clipboard";
 import { cn } from "@/lib/utils";
 import type {
   ContentReview,
@@ -56,14 +57,14 @@ export function XiaohongshuPublishPanel({
   const [exporting, setExporting] = useState(false);
   const variant = data.variants[tone];
   const checks = buildXiaohongshuPublishChecks({ data, tone, review });
-  const canCopyFullNote = checks.every((check) => !check.blocking || check.ok);
   const missingCount = countMissingXiaohongshuImages(data.imagePlan);
   const coverImage = data.imagePlan.find((item) => item.imageUrl)?.imageUrl;
   const busy = imageRegenerating || imageRendering || exporting;
 
-  const copyText = async (text: string, successMessage: string) => {
+  const copyText = async (text: string, successMessage: string, preserveLines = false) => {
     try {
-      await navigator.clipboard.writeText(text);
+      if (preserveLines) await copyNotePreservingLines(text);
+      else await navigator.clipboard.writeText(text);
       toast.success(successMessage);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "复制失败，请检查剪贴板权限");
@@ -309,15 +310,16 @@ export function XiaohongshuPublishPanel({
           </div>
         </section>
 
+        <p className="text-xs text-slate-600">粘贴到小红书时，使用下方「复制正文（保留换行）」，标题单独复制到标题栏。不要从 Markdown 预览全选复制；离线可使用发布包里的「正文.txt」。若目标编辑器仍改变格式，可尝试 Ctrl+Shift+V 粘贴为纯文本。复制不代表已通过质检。</p>
         <div className="flex flex-wrap gap-2">
           <Button
-            disabled={!canCopyFullNote}
+            disabled={!variant.body.trim()}
             onClick={() =>
-              void copyText(buildXiaohongshuBodyCopyText(variant), "正文已复制（含 #话题）")
+              void copyText(buildXiaohongshuBodyCopyText(variant), "正文已复制，已保留换行和空行", true)
             }
           >
             <Copy data-icon="inline-start" />
-            复制正文
+            复制正文（保留换行）
           </Button>
           <Button
             variant="outline"
@@ -329,9 +331,9 @@ export function XiaohongshuPublishPanel({
           </Button>
           <Button
             variant="outline"
-            disabled={!canCopyFullNote}
+            disabled={!variant.body.trim()}
             onClick={() =>
-              void copyText(buildXiaohongshuNoteText(variant), "标题+正文已复制")
+              void copyText(buildXiaohongshuNoteText(variant), "标题+正文已复制，已保留换行和空行", true)
             }
           >
             复制标题+正文

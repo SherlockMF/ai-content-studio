@@ -146,6 +146,8 @@ export interface Topic {
   directionId?: string;
   hotspotTitle?: string;
   outline?: string[];
+  suggestedScheduledAt?: string | null;
+  scheduleReason?: string;
 }
 
 /** 盲测封面可上传的原产品图标位 */
@@ -249,6 +251,8 @@ export interface ContentItem {
   status: ContentStatus;
   publishedAt?: string | null;
   scheduledAt?: string | null;
+  scheduleMode?: "auto" | "manual";
+  scheduleReason?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -284,6 +288,8 @@ export interface ContentReview {
   id: string;
   contentItemId: string;
   score: number;
+  /** 公众号质检时的文稿签名，修改后旧结果不再有效。 */
+  contentSnapshot?: string;
   issues: Array<{
     dimension: string;
     severity: "low" | "medium" | "high";

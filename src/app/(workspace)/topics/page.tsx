@@ -9,6 +9,7 @@ import { TopicWorkbench } from "@/components/shared/topic-workbench";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAppStore } from "@/lib/store/app-store";
+import { formatScheduleLabel } from "@/lib/schedule";
 import { topicsWithoutWechatDraft } from "@/lib/workspace-lists";
 
 export default function TopicsPage() {
@@ -37,6 +38,10 @@ export default function TopicsPage() {
                 <p>内容板块：{topic.section}</p>
                 {topic.hotspotTitle ? <p>关联热点：{topic.hotspotTitle}</p> : null}
                 <p>平台：公众号</p>
+                {topic.suggestedScheduledAt ? <div className="rounded-md bg-sky-50 p-2 text-sky-900">
+                  <p>预排：{formatScheduleLabel(topic.suggestedScheduledAt)}</p>
+                  <p className="text-xs">{topic.scheduleReason}</p>
+                </div> : null}
               </CardContent>
               <CardFooter className="justify-end gap-2">
                 <Link
@@ -60,7 +65,7 @@ export default function TopicsPage() {
                         body: "",
                         digest: "",
                         coverCopy: "",
-                        status: "待发布",
+                        status: "编辑中",
                         publishedAt: null,
                         createdAt: new Date().toISOString(),
                         updatedAt: new Date().toISOString(),

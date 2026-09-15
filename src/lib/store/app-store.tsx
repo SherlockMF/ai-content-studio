@@ -9,7 +9,8 @@ import {
   DEMO_TOPICS,
   DEMO_VERSIONS,
 } from "@/lib/mock-data";
-import { allocateNextWeekday, applyScheduleWithCascade, remapCascadeSchedules } from "@/lib/schedule";
+import { planAutomaticSchedule } from "@/lib/auto-schedule";
+import { applyScheduleWithCascade, remapCascadeSchedules } from "@/lib/schedule";
 import { normalizeContentStatus } from "@/lib/content-status";
 import { normalizeXiaohongshuContent } from "@/lib/xiaohongshu/content";
 import {
@@ -35,6 +36,10 @@ interface AppStoreValue {
   contentItems: ContentItem[];
   reviews: ContentReview[];
   versions: ContentVersion[];
+  autoScheduleEnabled?: boolean;
+  setAutoScheduleEnabled: (enabled: boolean) => void;
+  replanSchedule: () => void;
+  unlockContentSchedule: (id: string) => void;
   /** localStorage 已恢复，可与服务端首屏安全分叉 */
   storeHydrated: boolean;
   updatePublishVoice: (patch: Partial<PublishVoice>) => void;
@@ -55,7 +60,7 @@ interface AppStoreValue {
     dateKey: string | null,
     options?: { cascade?: boolean }
   ) => void;
-  /** 自动分配下一个空闲工作日并写入排期，返回 scheduledAt */
+  /** 根据题材与已有档期分配工作日，返回 scheduledAt */
   scheduleContent: (item: Omit<ContentItem, "scheduledAt"> & { scheduledAt?: string | null }) => string;
   addVersion: (version: ContentVersion) => void;
   setReviews: (value: ContentReview[]) => void;
@@ -64,6 +69,7 @@ interface AppStoreValue {
 }
 
 export interface AppState {
+  autoScheduleEnabled?: boolean;
   publishVoice: PublishVoice;
   materials: MaterialItem[];
   topics: Topic[];
@@ -73,6 +79,10 @@ export interface AppState {
   /** 种子稿指纹，变更后触发本地数据同步 */
   seedFingerprint?: string;
   seedVersion?: number;
+}
+
+function replanIfEnabled(state: AppState): AppState {
+  return state.autoScheduleEnabled ? { ...state, ...planAutomaticSchedule(state.contentItems, state.topics) } : state;
 }
 
 const STORAGE_KEY = "ai-content-publishing-workbench-v3";
@@ -167,6 +177,10 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     () => ({
       ...state,
       storeHydrated,
+      setAutoScheduleEnabled: (enabled) => setState(prev => replanIfEnabled({ ...prev, autoScheduleEnabled: enabled })),
+      replanSchedule: () => setState(prev => replanIfEnabled({ ...prev, autoScheduleEnabled: true })),
+      unlockContentSchedule: (id) => setState(prev => replanIfEnabled({ ...prev, autoScheduleEnabled: true,
+        contentItems: prev.contentItems.map(item => item.id === id ? { ...item, scheduleMode: "auto", scheduleReason: undefined } : item) })),
       updatePublishVoice: (patch) =>
         setState((prev) => ({
           ...prev,
@@ -195,28 +209,29 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
           materials: prev.materials.filter((material) => material.id !== id),
         })),
       deleteTopic: (id) =>
-        setState((prev) => ({
+        setState((prev) => replanIfEnabled({
           ...prev,
           topics: prev.topics.filter((topic) => topic.id !== id),
         })),
       addTopics: (items) =>
-        setState((prev) => ({ ...prev, topics: [...items, ...prev.topics] })),
+        setState((prev) => replanIfEnabled({ ...prev, topics: [...items, ...prev.topics.filter(topic => !items.some(item => item.id === topic.id))] })),
       upsertContent: (item) =>
         setState((prev) => {
-          const exists = prev.contentItems.some((c) => c.id === item.id);
-          return {
-            ...prev,
-            contentItems: exists
-              ? prev.contentItems.map((c) => (c.id === item.id ? item : c))
-              : [item, ...prev.contentItems],
-          };
+          const existing = prev.contentItems.find(c => c.id === item.id);
+          const merged = existing ? { ...item,
+            scheduledAt: existing.scheduledAt,
+            scheduleMode: existing.scheduleMode, scheduleReason: existing.scheduleReason } : item;
+          const next = { ...prev, contentItems: existing
+            ? prev.contentItems.map(c => c.id === item.id ? merged : c)
+            : [merged, ...prev.contentItems] };
+          return !existing || existing.status !== item.status ? replanIfEnabled(next) : next;
         }),
       deleteContent: (ids, options) =>
         setState((prev) => {
           const idSet = new Set(ids);
           const cascadeSchedule = options?.cascadeSchedule !== false;
           const includeLinked = options?.includeLinkedPlatforms !== false;
-          let removing = new Set(idSet);
+          const removing = new Set(idSet);
           if (includeLinked) {
             const topicIds = new Set(
               prev.contentItems.filter((item) => idSet.has(item.id)).map((item) => item.topicId)
@@ -226,55 +241,31 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
             }
           }
           const remaining = prev.contentItems.filter((item) => !removing.has(item.id));
-          return {
+          return replanIfEnabled({
             ...prev,
-            contentItems: cascadeSchedule ? remapCascadeSchedules(remaining) : remaining,
+            contentItems: cascadeSchedule && !prev.autoScheduleEnabled ? remapCascadeSchedules(remaining) : remaining,
             versions: prev.versions.filter((version) => !removing.has(version.contentItemId)),
             reviews: prev.reviews.filter((review) => !removing.has(review.contentItemId)),
-          };
+          });
         }),
       setContentSchedule: (id, dateKey, options) =>
         setState((prev) => {
-          const cascade = options?.cascade !== false;
-          if (!cascade) {
-            return {
-              ...prev,
-              contentItems: prev.contentItems.map((item) =>
-                item.id === id
-                  ? {
-                      ...item,
-                      scheduledAt: dateKey
-                        ? new Date(`${dateKey}T12:00:00`).toISOString()
-                        : null,
-                      updatedAt: new Date().toISOString(),
-                    }
-                  : item
-              ),
-            };
-          }
-          return {
-            ...prev,
-            contentItems: applyScheduleWithCascade(prev.contentItems, {
-              lockedId: id,
-              lockedDateKey: dateKey,
-            }),
-          };
+          const marked = prev.contentItems.map(item => item.id === id ? { ...item, scheduleMode: "manual" as const, scheduleReason: "手动确定，自动排期保留此日期" } : item);
+          const contentItems = options?.cascade !== false && !prev.autoScheduleEnabled
+            ? applyScheduleWithCascade(marked, { lockedId: id, lockedDateKey: dateKey })
+            : marked.map(item => item.id === id ? { ...item,
+              scheduledAt: dateKey ? new Date(`${dateKey}T12:00:00`).toISOString() : null,
+              updatedAt: new Date().toISOString() } : item);
+          return replanIfEnabled({ ...prev, contentItems });
         }),
       scheduleContent: (item) => {
-        let scheduledAt = "";
-        setState((prev) => {
-          scheduledAt = allocateNextWeekday(prev.contentItems);
-          const nextItem: ContentItem = {
-            ...item,
-            scheduledAt,
-          };
-          const exists = prev.contentItems.some((c) => c.id === nextItem.id);
-          return {
-            ...prev,
-            contentItems: exists
-              ? prev.contentItems.map((c) => (c.id === nextItem.id ? nextItem : c))
-              : [nextItem, ...prev.contentItems],
-          };
+        const preview = planAutomaticSchedule(
+          [...state.contentItems.filter(c => c.id !== item.id), { ...item, scheduleMode: "auto" }], state.topics);
+        const scheduledAt = preview.contentItems.find(c => c.id === item.id)!.scheduledAt!;
+        setState(prev => {
+          const nextItem: ContentItem = { ...item, scheduledAt, scheduleMode: "auto" };
+          const contentItems = [nextItem, ...prev.contentItems.filter(c => c.id !== item.id)];
+          return { ...prev, ...planAutomaticSchedule(contentItems, prev.topics) };
         });
         return scheduledAt;
       },

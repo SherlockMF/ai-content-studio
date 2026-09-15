@@ -100,7 +100,7 @@ function dateKeyPlusOneDay(dateKey: string) {
 
 /** 可被自动顺延：公众号、未归档、且尚未发布 */
 export function isCascadeSchedulable(item: ContentItem) {
-  if (item.platform !== "wechat") return false;
+  if (item.platform !== "wechat" || item.scheduleMode === "manual") return false;
   if (isArchivedStatus(item.status)) return false;
   if (isPublishedLikeStatus(item.status)) return false;
   return true;

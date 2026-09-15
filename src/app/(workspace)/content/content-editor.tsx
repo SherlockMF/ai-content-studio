@@ -1,5 +1,8 @@
 "use client";
 
+import { ReviewIssuesPanel } from "@/components/shared/review-issues-panel";
+import { reviewRevisionSignature, type ReviewRevisionDraft } from "@/lib/review-revision";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/shared/app-shell";
@@ -22,6 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import {
   CONTENT_STATUSES,
+  isPublishedLikeStatus,
   requiresPublishChecks,
   shouldStampPublishedAt,
 } from "@/lib/content-status";
@@ -139,10 +143,10 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
     upsertContent,
     deleteContent,
     setContentSchedule,
+    unlockContentSchedule,
     versions,
     addVersion,
     reviews,
-    setReviews,
     addReview,
     publishVoice,
     materials,
@@ -158,7 +162,7 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
   );
 
   const scheduledJumpTargets = useMemo(() => {
-    return [...activeContents, ...archivedContents]
+    return activeContents
       .filter((item) => item.scheduledAt)
       .sort((a, b) => (a.scheduledAt ?? "").localeCompare(b.scheduledAt ?? ""))
       .map((item) => ({
@@ -167,7 +171,7 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
         label: formatScheduleLabel(item.scheduledAt),
         title: item.title,
       }));
-  }, [activeContents, archivedContents]);
+  }, [activeContents]);
 
   const topicListItemRefs = useRef<Record<string, HTMLElement | null>>({});
 
@@ -306,12 +310,15 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
   const [wechatMediaProgress, setWechatMediaProgress] = useState("");
   const polishedAtByContent = useMemo(() => latestPolishByContent(versions), [versions]);
   const polishedAt = activeContent ? polishedAtByContent[activeContent.id] : undefined;
-  const latestReview = useMemo(() => {
+  const latestReviewRecord = useMemo(() => {
     if (!activeContent?.id) return undefined;
     return [...reviews]
       .filter((review) => review.contentItemId === activeContent.id)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
   }, [reviews, activeContent]);
+  const revisionDraft: ReviewRevisionDraft = { platform: "wechat", title: draftTitle, body: draftBody, digest: draftDigest, coverCopy: draftCover, cta: draftCta };
+  const reviewSignature = reviewRevisionSignature(revisionDraft, "", draftSupplementaryNotes);
+  const latestReview = latestReviewRecord?.contentSnapshot === reviewSignature ? latestReviewRecord : undefined;
   const latestXiaohongshuReview = useMemo(() => {
     if (!xiaohongshuContent?.id) return undefined;
     return [...reviews]
@@ -1016,16 +1023,19 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
       if (!res.ok) throw new Error(review.message || "质检失败");
       const issues = Array.isArray(review.issues) ? review.issues : [];
       const score = typeof review.score === "number" ? review.score : 0;
-      setReviews([
-        {
+      const current = draftRef.current;
+      if (current.topicId !== activeTopicId || reviewRevisionSignature({ platform: "wechat", title: current.title, body: current.body, digest: current.digest, coverCopy: current.coverCopy, cta: current.cta }, "", current.supplementaryNotes) !== reviewSignature) {
+        toast.message("稿件已变化，本次质检结果未应用，请重新质检");
+        return;
+      }
+      addReview({
           id: `review_${Date.now()}`,
           contentItemId: contentId,
+          contentSnapshot: reviewSignature,
           score,
           issues,
           createdAt: new Date().toISOString(),
-        },
-        ...reviews,
-      ]);
+      });
       toast.success(`质检完成，得分 ${score}`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "质检失败");
@@ -1140,10 +1150,10 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
     }
     const nextKey = dateKey.trim() || null;
     if (nextKey && !isWeekdayDateKey(nextKey)) {
-      toast.message("所选日期不是工作日，仍会保存；其后稿件会顺延");
+      toast.message("所选日期不是工作日，仍按手动日期保存");
     }
     setContentSchedule(activeContent.id, nextKey, { cascade: true });
-    toast.success(nextKey ? `排期已设为 ${formatScheduleLabel(nextKey)}，后续稿已顺延` : "已取消排期，其余稿已重排");
+    toast.success(nextKey ? `排期已手动锁定为 ${formatScheduleLabel(nextKey)}` : "已取消并锁定为不排期");
   };
 
   return (
@@ -1154,7 +1164,7 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
             <div className="flex items-start justify-between gap-2">
               <div>
                 <CardTitle className="text-base">稿件列表</CardTitle>
-                <p className="mt-1 text-xs text-slate-500">勾选可批量删除；改排期会顺延后续稿</p>
+                <p className="mt-1 text-xs text-slate-500">勾选可批量删除；手动日期会保留</p>
               </div>
               {selectedContentIds.length > 0 ? (
                 <Button
@@ -1381,13 +1391,16 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
               {activePlatform === "wechat" ? (
                 <>
                   {hasDraft ? (
+                    <>
                     <Input
                       type="date"
                       value={(activeContent?.scheduledAt ?? "").slice(0, 10)}
                       onChange={(e) => handleScheduleChange(e.target.value)}
                       className="h-7 w-[9.5rem] text-xs"
-                      title="设置排期；同日及之后的未发布稿会自动顺延"
+                      title="设置并锁定排期，自动规划会保留手动日期"
                     />
+                    {activeContent && !isPublishedLikeStatus(activeContent.status) && !activeContent.publishedAt ? <Button size="sm" variant="outline" onClick={() => { unlockContentSchedule(activeContent.id); toast.success("已纳入自动排期"); }}>自动安排日期</Button> : null}
+                    </>
                   ) : null}
                   <Button
                     size="sm"
@@ -1718,50 +1731,17 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
                     factDiffAcknowledged={factDiffAcknowledged}
                   />
 
-                  {latestReview ? (
-                    <div className="rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm">
-                      <div className="mb-2 flex flex-wrap items-center gap-2">
-                        <span className="font-medium text-slate-800">
-                          质检结果 · {latestReview.score} 分
-                        </span>
-                        <span className="text-xs text-slate-500">
-                          {new Date(latestReview.createdAt).toLocaleString("zh-CN")}
-                        </span>
-                      </div>
-                      {(latestReview.issues ?? []).length === 0 ? (
-                        <p className="text-slate-600">未发现明显问题，可以进入排期发布。</p>
-                      ) : (
-                        <ul className="space-y-2">
-                          {(latestReview.issues ?? []).map((issue, index) => (
-                            <li
-                              key={`${issue.dimension}-${index}`}
-                              className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2"
-                            >
-                              <div className="flex flex-wrap items-center gap-2 text-xs">
-                                <span className="font-medium text-slate-800">{issue.dimension}</span>
-                                <Badge
-                                  variant={
-                                    issue.severity === "high"
-                                      ? "destructive"
-                                      : issue.severity === "medium"
-                                        ? "secondary"
-                                        : "outline"
-                                  }
-                                  className="text-[10px]"
-                                >
-                                  {issue.severity === "high"
-                                    ? "必须改"
-                                    : issue.severity === "medium"
-                                      ? "建议改"
-                                      : "可选"}
-                                </Badge>
-                              </div>
-                              <p className="mt-1 text-slate-600">{issue.suggestion}</p>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
+                  {latestReviewRecord ? (
+                    <ReviewIssuesPanel key={latestReviewRecord.id} review={latestReviewRecord}
+                      draft={revisionDraft} supplementaryNotes={draftSupplementaryNotes}
+                      targetAudience={publishVoice.audience} stale={!latestReview}
+                      disabled={reviewLoading || generateLoading || wechatMediaLoading}
+                      onApply={(revised) => {
+                        if (!activeContent) return;
+                        persistDraft({ id: activeContent.id, topicId: activeTopicId,
+                          title: revised.title, body: revised.body, digest: revised.digest,
+                          coverCopy: revised.coverCopy, cta: revised.cta, status: "编辑中" }, "ai_rewrite");
+                      }} />
                   ) : null}
                 </>
               ) : null}
