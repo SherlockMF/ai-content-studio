@@ -38,3 +38,38 @@ test("image payload containing fill/link text is still embedded in Word", async 
   const docx = await JSZip.loadAsync(await zip.file(name)!.async("uint8array"));
   assert.match(await docx.file("word/document.xml")!.async("string"), /<w:drawing>/);
 });
+
+test("local article assets become embedded Word media and missing files block the package", async (t) => {
+  const bytes = Buffer.from(png.split(",")[1], "base64");
+  const requests: string[] = [];
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { location: { origin: "https://workspace.test" } } });
+  t.after(() => {
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  });
+  t.mock.method(globalThis, "fetch", async (url: string) => {
+    requests.push(url);
+    return url.endsWith("/missing.png")
+      ? new Response(null, { status: 404 })
+      : new Response(bytes, { headers: { "Content-Type": "image/png" } });
+  });
+  const result = await buildWechatPublishBundle({ title: "本地图验证", body: "![封面](/article-assets/real.png)" });
+  const zip = await JSZip.loadAsync(await result.blob.arrayBuffer());
+  const name = Object.keys(zip.files).find(entry => entry.endsWith(".docx"))!;
+  const docx = await JSZip.loadAsync(await zip.file(name)!.async("uint8array"));
+  const xml = await docx.file("word/document.xml")!.async("string");
+  const rels = await docx.file("word/_rels/document.xml.rels")!.async("string");
+  const embedId = xml.match(/r:embed="([^"]+)"/)?.[1];
+  assert.ok(embedId);
+  const relationship = rels.match(new RegExp(`<Relationship\\b[^>]*Id="${embedId}"[^>]*/>`))?.[0];
+  assert.ok(relationship);
+  assert.doesNotMatch(relationship, /TargetMode="External"/);
+  const target = relationship.match(/Target="([^"]+)"/)?.[1];
+  assert.ok(target);
+  assert.deepEqual(await docx.file(`word/${target}`)!.async("nodebuffer"), bytes);
+  assert.deepEqual(await zip.file("images/01-封面.png")!.async("nodebuffer"), bytes);
+  assert.doesNotMatch(xml, /配图占位|\/article-assets\//);
+  assert.deepEqual(requests, ["https://workspace.test/article-assets/real.png"]);
+  await assert.rejects(buildWechatPublishBundle({ title: "缺图", body: "![缺图](/article-assets/missing.png)" }), /无法读取图片/);
+});
