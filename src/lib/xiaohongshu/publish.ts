@@ -12,10 +12,14 @@ import {
 } from "@/lib/xiaohongshu/limits";
 import { extractHashtagsFromText } from "@/lib/xiaohongshu/note-body";
 import { parseDataUrl } from "@/lib/export-assets";
+import {
+  detectOffPlatformDiversion,
+  formatDiversionHint,
+} from "@/lib/content-ops/topic-publish-revision";
 import { XIAOHONGSHU_NO_PAGE_BADGES } from "@/lib/ai/xiaohongshu-prompt";
 
 export interface XiaohongshuPublishCheck {
-  id: "title" | "body" | "hashtags" | "images" | "rendered-images" | "review";
+  id: "title" | "body" | "hashtags" | "images" | "rendered-images" | "review" | "off-platform";
   label: string;
   ok: boolean;
   hint?: string;
@@ -65,6 +69,10 @@ export function buildXiaohongshuPublishChecks(input: {
   const bodyChars = countXiaohongshuChars(variant.body.trim());
   const titleOk = titleChars > 0 && titleChars <= XIAOHONGSHU_TITLE_MAX_CHARS;
   const bodyOk = bodyChars > 0 && bodyChars <= XIAOHONGSHU_BODY_MAX_CHARS;
+  const diversionHits = detectOffPlatformDiversion(
+    [variant.title, variant.body, ...data.imagePlan.map((image) => image.overlayText)].join("\n")
+  );
+  const diversionOk = diversionHits.length === 0;
 
   return [
     {
@@ -87,6 +95,13 @@ export function buildXiaohongshuPublishChecks(input: {
         : bodyChars === 0
           ? "请填写当前版本正文"
           : `正文已超 ${XIAOHONGSHU_BODY_MAX_CHARS} 字（当前 ${bodyChars}）`,
+      blocking: true,
+    },
+    {
+      id: "off-platform",
+      label: diversionOk ? "无站外引流信息" : "存在站外引流风险",
+      ok: diversionOk,
+      hint: formatDiversionHint(diversionHits),
       blocking: true,
     },
     {

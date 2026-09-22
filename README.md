@@ -15,6 +15,14 @@
 
 小红书功能采用手动发布：工作台负责生成文案、话题和图片提示词，不会直接登录或操作小红书账号。
 
+## 选题 / 发布 / 改稿清单
+
+流量复盘沉淀的运营规则（选题轮换、公众号贴图、小红书合规、改稿信号）见：
+
+- [docs/playbooks/content-topic-publish-revision.md](docs/playbooks/content-topic-publish-revision.md)
+
+同一规则已写入项目代码：选题与出稿提示词、小红书发布检查（站外引流拦截）、公众号发布检查（贴图提醒）。不依赖 Cursor。
+
 ## 本地运行
 
 安装依赖：

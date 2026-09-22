@@ -115,6 +115,26 @@ test("blocks publish when body lacks enough #hashtags", () => {
   assert.equal(checks.find((item) => item.id === "hashtags")?.ok, false);
 });
 
+test("blocks publish when note contains off-platform diversion", () => {
+  const checks = buildXiaohongshuPublishChecks({
+    data: {
+      ...draftData,
+      variants: {
+        ...draftData.variants,
+        professional: {
+          ...variant,
+          body: `${variant.body}\n详情加我微信：abc_test`,
+        },
+      },
+    },
+    tone: "professional",
+  });
+  const diversion = checks.find((item) => item.id === "off-platform");
+  assert.equal(diversion?.ok, false);
+  assert.equal(diversion?.blocking, true);
+  assert.match(diversion?.hint ?? "", /微信号/);
+});
+
 test("blocks publish when title or body exceeds platform limits", () => {
   const overTitle = buildXiaohongshuPublishChecks({
     data: {

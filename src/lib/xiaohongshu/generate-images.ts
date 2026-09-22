@@ -47,6 +47,7 @@ export async function fillXiaohongshuImagePlan(
     onlyMissing?: boolean;
     forceBlindtestIcons?: boolean;
     onProgress?: (event: XiaohongshuImageProgress) => void;
+    onImage?: (image: XiaohongshuImagePrompt) => void;
   }
 ): Promise<XiaohongshuImagePrompt[]> {
   const total = imagePlan.length;
@@ -89,6 +90,7 @@ export async function fillXiaohongshuImagePlan(
         message,
       });
     }
+    options.onImage?.(next[next.length - 1]);
   }
 
   return next;

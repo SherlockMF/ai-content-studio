@@ -1,5 +1,6 @@
 import { getLLMProvider } from "@/lib/ai/providers";
 import { checkPublishedTopics, publishedTopicsPrompt, type PublishedArticle } from "@/lib/ai/published-topic-check";
+import { TOPIC_SELECTION_RULES } from "@/lib/content-ops/topic-publish-revision";
 import { LLMClientSettings } from "@/lib/ai/llm-settings";
 import { LLMMessage } from "@/lib/ai/providers/types";
 import {
@@ -151,7 +152,7 @@ export async function generateTopics(
     input.voice,
     input.harness,
     { materials: input.materials, historyTitles: input.historyTitles },
-    `Task: generateTopics\n请输出 ${input.count} 条结构化选题，默认平台公众号，覆盖不同内容板块并避免重复。\n${publishedTopicsPrompt(input.publishedArticles ?? [])}`
+    `Task: generateTopics\n请输出 ${input.count} 条结构化选题，默认平台公众号，覆盖不同内容板块并避免重复。\n${TOPIC_SELECTION_RULES}\n${publishedTopicsPrompt(input.publishedArticles ?? [])}`
   );
 
   const result = topicsOutputSchema.parse(await provider.generateStructuredOutput(messages, topicsOutputSchema));
@@ -178,6 +179,7 @@ export async function generateResearchDirections(
 1) leverageAngle：一句话说明如何蹭这个热点、又不偏离账号定位
 2) directions：恰好 3 个不同切口的话题方向。每个方向要有 title、angle、whyNow、targetAudience、outline（4-6 条提纲）、coreViewpoint、section（四板块之一）、openingHook。
 要求三个方向差异明显，避免同义重复。${buildHotspotPrompt(input.hotspot)}
+${TOPIC_SELECTION_RULES}
 ${publishedTopicsPrompt(input.publishedArticles ?? [])}`
   );
 

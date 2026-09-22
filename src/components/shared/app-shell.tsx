@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { FileText, Home, Lightbulb, Settings, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAppStore } from "@/lib/store/app-store";
 
 const navItems = [
   { href: "/dashboard", label: "工作台", icon: Home },
@@ -23,6 +24,8 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const { imageJobs, contentItems } = useAppStore();
+  const runningImages = Object.entries(imageJobs).filter(([, job]) => job.running);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -51,6 +54,14 @@ export function AppShell({
               );
             })}
           </nav>
+          {runningImages.length > 0 ? <div className="mt-4 space-y-2 rounded-lg bg-sky-50 p-3 text-xs" aria-label="后台生图任务">
+            <p className="font-medium">后台生图 · {runningImages.length} 篇</p>
+            {runningImages.map(([id, job]) => {
+              const item = contentItems.find(content => content.id === id);
+              return <div key={id}><p className="font-medium">{item?.title ?? "原稿件"}</p><p className="mt-1 text-slate-500">{job.progress}</p></div>;
+            })}
+            <p className="text-slate-500">可以切换稿件；请保持此工作台页面打开。</p>
+          </div> : null}
         </aside>
         <section className="rounded-xl border bg-white">
           <header className="flex items-center justify-between border-b px-6 py-4">

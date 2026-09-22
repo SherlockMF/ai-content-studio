@@ -4,6 +4,10 @@ import { SYSTEM_PROMPT } from "@/lib/ai/prompts";
 import { buildSupplementaryNotesPrompt } from "@/lib/content-supplementary-notes";
 import { reviewOutputSchema } from "@/lib/ai/schemas";
 import { buildXiaohongshuReviewPrompt } from "@/lib/ai/xiaohongshu-prompt";
+import {
+  collectWechatEditorialFlags,
+  mergeEditorialFlagsIntoReview,
+} from "@/lib/markdown/wechat-editorial-flags";
 import type { XiaohongshuImagePrompt } from "@/types/domain";
 import type { LLMProvider } from "@/lib/ai/providers/types";
 
@@ -16,7 +20,7 @@ export async function reviewContent(input: {
 }, provider: LLMProvider = getLLMProvider(input.llm)) {
   const notesPrompt = buildSupplementaryNotesPrompt(input.supplementaryNotes);
 
-  return provider.generateStructuredOutput(
+  const review = await provider.generateStructuredOutput(
     [
       { role: "system", content: `${SYSTEM_PROMPT}
 【公众号质检的交付上下文与证据边界】
@@ -36,7 +40,9 @@ ${notesPrompt ? `\n${notesPrompt}\n` : ""}
 2. 结构可读：开头是否结论前置，段落是否过长，有无报告腔或重复论述
 3. AI 味与套话：翻案腔、空洞形容词、营销腔、过多引用块或列表堆砌
 4. 受众匹配：${input.targetAudience} 能否读懂，专业术语是否必要且可理解
-5. 发布就绪：摘要与标题是否匹配正文，有无未替换的配图占位符、待办语
+5. 专名可读：外文产品/公司名（如 Stripe）首次出现时，上下文是否足以让目标受众理解；否则报 medium/high，建议补一句白话说明或改写
+6. 引用呈现：禁止仅用「来源」作链接文案；应写入句子或可读出处名；插图前后勿留独占一行的孤立引用
+7. 发布就绪：摘要与标题是否匹配正文，有无未替换的配图占位符、待办语
 
 severity：high=发布前必须改，medium=建议改，low=可选优化
 标题：${input.title}
@@ -45,6 +51,11 @@ ${input.body}`,
       },
     ],
     reviewOutputSchema
+  );
+
+  return mergeEditorialFlagsIntoReview(
+    review,
+    collectWechatEditorialFlags(input.body)
   );
 }
 

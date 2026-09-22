@@ -2,6 +2,13 @@ import { z } from "zod";
 import type { ContentReview } from "@/types/domain";
 import { countXiaohongshuChars } from "@/lib/xiaohongshu/limits";
 
+export class ReviewTitleTooLongError extends Error {
+  constructor(public readonly title: string) {
+    super("修改后小红书标题超过 20 字，请重新生成完整短标题");
+    this.name = "ReviewTitleTooLongError";
+  }
+}
+
 const imageSchema = z.object({
   index: z.number().int().positive(), role: z.enum(["cover", "content", "ending"]),
   objective: z.string(), overlayText: z.string(), composition: z.string(), prompt: z.string(),
@@ -86,7 +93,7 @@ export function applyReviewEdits(input: ReviewRevisionDraft, edits: ReviewEdit[]
   }
   if (!draft.title.trim() || !draft.body.trim()) throw new Error("修改后标题和正文不能为空");
   if (draft.platform === "xiaohongshu") {
-    if (countXiaohongshuChars(draft.title) > 20) throw new Error("修改后小红书标题超过 20 字，请重新生成完整短标题");
+    if (countXiaohongshuChars(draft.title) > 20) throw new ReviewTitleTooLongError(draft.title);
     if (countXiaohongshuChars(draft.body) > 1000) throw new Error("修改后小红书正文超过 1000 字，未保存");
   }
   for (const image of draft.imagePlan ?? []) {

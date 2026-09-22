@@ -1,5 +1,6 @@
 import { PLACEHOLDER_RE, IMAGE_MD_RE } from "@/lib/export-assets";
 import { bodyContainsH1 } from "@/lib/markdown/parse";
+import { collectWechatEditorialFlags } from "@/lib/markdown/wechat-editorial-flags";
 import {
   renderWechatHtml,
   wrapClipboardHtml,
@@ -20,6 +21,7 @@ export function buildWechatPublishChecks(input: {
   digest?: string;
   body: string;
   reviewScore?: number;
+  xiaohongshuImageUrls?: string[];
   factDiff?: FactDiffReport | null;
   factDiffAcknowledged?: boolean;
 }) {
@@ -31,6 +33,9 @@ export function buildWechatPublishChecks(input: {
     return url.startsWith("/article-assets/") || url.startsWith("data:image");
   }).length;
   const hasH1 = bodyContainsH1(input.body);
+  const xiaohongshuUrls = new Set(input.xiaohongshuImageUrls ?? []);
+  const mixedImagePositions = [...input.body.matchAll(IMAGE_MD_RE)]
+    .flatMap((match, index) => xiaohongshuUrls.has(match[2].trim()) ? [index + 1] : []);
   const factBlocked = Boolean(
     input.factDiff?.blocking && !input.factDiffAcknowledged
   );
@@ -73,6 +78,14 @@ export function buildWechatPublishChecks(input: {
           : undefined,
     },
     {
+      id: "image-platform",
+      label: mixedImagePositions.length ? "配图混用了小红书图片" : "未混用小红书配图",
+      ok: mixedImagePositions.length === 0,
+      hint: mixedImagePositions.length
+        ? `第 ${mixedImagePositions.join("、")} 张引用了小红书配图，请替换为公众号专用图片后再复制或导出`
+        : undefined,
+    },
+    {
       id: "facts",
       label: factBlocked
         ? "事实 Diff 待确认"
@@ -86,6 +99,36 @@ export function buildWechatPublishChecks(input: {
     },
   ];
 
+  const editorialFlags = collectWechatEditorialFlags(input.body);
+  for (const flag of editorialFlags) {
+    if (flag.id === "orphan-source-link") {
+      checks.push({
+        id: flag.id,
+        label: "无悬空「来源」引用",
+        ok: false,
+        hint: flag.suggestion,
+      });
+      continue;
+    }
+    if (flag.id === "broken-markdown-table") {
+      checks.push({
+        id: flag.id,
+        label: "Markdown 表格可解析",
+        ok: false,
+        hint: flag.suggestion,
+      });
+      continue;
+    }
+    if (flag.id === "table-preview-reminder") {
+      checks.push({
+        id: flag.id,
+        label: "含表格：请核对接预览",
+        ok: true,
+        hint: flag.suggestion,
+      });
+    }
+  }
+
   if (typeof input.reviewScore === "number") {
     checks.push({
       id: "review",
@@ -94,6 +137,13 @@ export function buildWechatPublishChecks(input: {
       hint: input.reviewScore >= 75 ? undefined : "建议润色或修正后再发",
     });
   }
+
+  checks.push({
+    id: "sticker-reminder",
+    label: "贴图一文双发（可选）",
+    ok: true,
+    hint: "若用官方「文章生成贴图」：发布前改大字痛点封面，再发贴图；贴图优先推非粉，不是误发",
+  });
 
   return checks;
 }

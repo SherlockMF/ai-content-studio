@@ -57,6 +57,11 @@ import { cn } from "@/lib/utils";
 import { latestPolishByContent } from "@/lib/content-polish";
 import { generateWechatMedia } from "@/lib/illustrations/wechat-media-client";
 import {
+  formatMediaStepToast,
+  hasWechatBodyImages,
+  shouldSkipDeAi,
+} from "@/lib/wechat-publish-prep";
+import {
   activeWechatContents,
   archivedWechatContents,
 } from "@/lib/workspace-lists";
@@ -435,6 +440,27 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
     setDraftSupplementaryNotes(content.supplementaryNotes ?? "");
     setDraftSource(content.source ?? "imported");
     setDraftStatus(content.status);
+    draftRef.current = {
+      ...draftRef.current,
+      topicId: content.topicId,
+      title: content.title,
+      digest: content.digest ?? "",
+      coverCopy: content.coverCopy ?? "",
+      body: content.body ?? "",
+      cta: content.cta ?? "",
+      supplementaryNotes: content.supplementaryNotes ?? "",
+      status: content.status,
+      source: content.source ?? "imported",
+      contentId: content.id,
+      scheduledAt: content.scheduledAt ?? null,
+      publishedAt: content.publishedAt ?? null,
+      createdAt: content.createdAt,
+      importBaseline: content.importBaseline,
+      brandIconRefs: content.brandIconRefs,
+      coverPromptPack: content.coverPromptPack,
+      lastFactDiff: content.lastFactDiff,
+      workspaceId: content.workspaceId ?? "ws_demo",
+    };
     if (content.lastFactDiff) {
       setFactDiffReport(factSnapshotToReport(content.lastFactDiff));
       setFactDiffAcknowledged(Boolean(content.lastFactDiff.acknowledgedAt));
@@ -783,8 +809,13 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
     return saved;
   };
 
-  const runMediaForContent = async (content: ContentItem, previousBody?: string) => {
-    setWechatMediaLoading(true);
+  const runMediaForContent = async (
+    content: ContentItem,
+    previousBody?: string,
+    options?: { manageLoading?: boolean }
+  ) => {
+    const manageLoading = options?.manageLoading !== false;
+    if (manageLoading) setWechatMediaLoading(true);
     let expectedBody = content.body;
     try {
       const result = await generateWechatMedia({
@@ -806,10 +837,100 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
           }
         },
       });
-      if (result.failures.length) toast.error(`文案已保存，${result.failures.length} 张配图未完成：${result.failures.join("；")}`);
-      else toast.success("配图已检查并保存，匹配的原图已保留");
+      const message = formatMediaStepToast({
+        hasImages: hasWechatBodyImages(result.body),
+        failures: result.failures,
+      });
+      if (result.failures.length) toast.error(message);
+      else toast.success(message);
+      return { ok: result.failures.length === 0, failures: result.failures };
     } catch (error) {
       toast.error(`文案已保存，配图未完成：${error instanceof Error ? error.message : "配图失败"}`);
+      return { ok: false, failures: [error instanceof Error ? error.message : "配图失败"] };
+    } finally {
+      if (manageLoading) {
+        setWechatMediaLoading(false);
+        setWechatMediaProgress("");
+      }
+    }
+  };
+
+  /** 仅去 AI 味（不配图）；失败抛错供发布前检查中断。 */
+  const runDeAiForContent = async (content: ContentItem): Promise<ContentItem> => {
+    if (!selectedTopic) throw new Error("请先选择选题");
+    const mode: WechatGenerateMode = isEvaluationDraft({
+      topicId: content.topicId,
+      body: content.body,
+    })
+      ? "preserve_structure"
+      : "polish";
+    if (content.body.length > 2500) {
+      toast.message("长文将分段润色，可能需要 1–2 分钟，请稍候");
+    }
+    const res = await fetch("/api/ai/wechat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        withLLMPayload({
+          voice: publishVoice,
+          materials,
+          knowledgeReferences,
+          topic: selectedTopic,
+          mode,
+          existingBody: content.body,
+          existingMeta: {
+            title: content.title,
+            digest: content.digest,
+            coverCopy: content.coverCopy,
+            cta: content.cta,
+          },
+          supplementaryNotes: content.supplementaryNotes?.trim() || undefined,
+        })
+      ),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.message || "去 AI 味失败");
+    if (draftRef.current?.topicId !== content.topicId || draftRef.current.body !== content.body) {
+      throw new Error("稿件已切换或正文已修改，去 AI 味结果未覆盖当前内容");
+    }
+    return applyGenerationResult(result, mode, content.source);
+  };
+
+  /** 发布前检查：去 AI 味（可跳过）→ 补图 → 质检 */
+  const runPublishPrepCheck = async () => {
+    const saved = flushAutosave();
+    if (!saved?.body.trim()) {
+      toast.error("请先填写正文");
+      return;
+    }
+    setWechatMediaLoading(true);
+    try {
+      let content = saved;
+
+      if (
+        shouldSkipDeAi({
+          source: content.source,
+          polishedAt: polishedAtByContent[content.id],
+        })
+      ) {
+        setWechatMediaProgress("已去过 AI 味，跳过");
+        toast.message("已去过 AI 味，跳过");
+      } else {
+        setWechatMediaProgress("去 AI 味中…");
+        content = await runDeAiForContent(content);
+      }
+
+      if (!hasWechatBodyImages(content.body)) {
+        setWechatMediaProgress("补图：无图");
+        toast.message("补图：无图");
+      } else {
+        await runMediaForContent(content, content.body, { manageLoading: false });
+      }
+
+      setWechatMediaProgress("质检中…");
+      await runReview({ manageLoading: false });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "发布前检查失败");
     } finally {
       setWechatMediaLoading(false);
       setWechatMediaProgress("");
@@ -981,8 +1102,9 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
     );
   };
 
-  const runReview = async () => {
-    if (!draftBody.trim()) {
+  const runReview = async (options?: { manageLoading?: boolean }) => {
+    const start = draftRef.current;
+    if (!start.body.trim()) {
       toast.error("请先填写正文");
       return;
     }
@@ -991,7 +1113,7 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
       return;
     }
 
-    let contentId = activeContent?.id;
+    let contentId = activeContent?.id ?? start.contentId;
     if (!contentId) {
       const saved = persistDraft(
         {
@@ -1005,17 +1127,31 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
       contentId = saved.id;
     }
 
-    setReviewLoading(true);
+    const startSignature = reviewRevisionSignature(
+      {
+        platform: "wechat",
+        title: start.title,
+        body: start.body,
+        digest: start.digest,
+        coverCopy: start.coverCopy,
+        cta: start.cta,
+      },
+      "",
+      start.supplementaryNotes
+    );
+
+    const manageLoading = options?.manageLoading !== false;
+    if (manageLoading) setReviewLoading(true);
     try {
       const res = await fetch("/api/ai/review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           withLLMPayload({
-            title: draftTitle,
-            body: draftBody,
+            title: start.title,
+            body: start.body,
             targetAudience: publishVoice.audience,
-            supplementaryNotes: draftSupplementaryNotes.trim() || undefined,
+            supplementaryNotes: start.supplementaryNotes.trim() || undefined,
           })
         ),
       });
@@ -1024,14 +1160,26 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
       const issues = Array.isArray(review.issues) ? review.issues : [];
       const score = typeof review.score === "number" ? review.score : 0;
       const current = draftRef.current;
-      if (current.topicId !== activeTopicId || reviewRevisionSignature({ platform: "wechat", title: current.title, body: current.body, digest: current.digest, coverCopy: current.coverCopy, cta: current.cta }, "", current.supplementaryNotes) !== reviewSignature) {
+      const currentSignature = reviewRevisionSignature(
+        {
+          platform: "wechat",
+          title: current.title,
+          body: current.body,
+          digest: current.digest,
+          coverCopy: current.coverCopy,
+          cta: current.cta,
+        },
+        "",
+        current.supplementaryNotes
+      );
+      if (current.topicId !== activeTopicId || currentSignature !== startSignature) {
         toast.message("稿件已变化，本次质检结果未应用，请重新质检");
         return;
       }
       addReview({
           id: `review_${Date.now()}`,
           contentItemId: contentId,
-          contentSnapshot: reviewSignature,
+          contentSnapshot: startSignature,
           score,
           issues,
           createdAt: new Date().toISOString(),
@@ -1040,7 +1188,7 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "质检失败");
     } finally {
-      setReviewLoading(false);
+      if (manageLoading) setReviewLoading(false);
     }
   };
 
@@ -1414,13 +1562,17 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
                         ? polishedAt ? "再次润色" : "AI 润色"
                         : "重新生成"}
                   </Button>
-                  <Button variant="outline" size="sm" className="h-7 text-xs"
-                    disabled={!draftBody.trim() || generateLoading || wechatMediaLoading}
-                    onClick={() => {
-                      const saved = flushAutosave();
-                      if (saved) void runMediaForContent(saved, saved.body);
-                    }}>
-                    {wechatMediaLoading ? wechatMediaProgress || "配图处理中…" : "检查并补齐配图"}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    title="去 AI 味 → 补图 → 质检"
+                    disabled={!draftBody.trim() || generateLoading || wechatMediaLoading || reviewLoading}
+                    onClick={() => void runPublishPrepCheck()}
+                  >
+                    {wechatMediaLoading
+                      ? wechatMediaProgress || "发布前检查中…"
+                      : "发布前检查"}
                   </Button>
                   <Button
                     variant="outline"
@@ -1605,7 +1757,7 @@ function ContentEditorLoaded({ initialTopicId }: { initialTopicId: string | null
                     <Button
                       variant="outline"
                       size="sm"
-                      disabled={!draftBody.trim() || reviewLoading}
+                      disabled={!draftBody.trim() || reviewLoading || wechatMediaLoading}
                       onClick={() => void runReview()}
                     >
                       {reviewLoading ? "质检中..." : "运行质检"}

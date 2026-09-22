@@ -1,5 +1,7 @@
 "use client";
 
+import { useAppStore } from "@/lib/store/app-store";
+import { imagePlanSignature } from "@/lib/xiaohongshu/merge-generated-image";
 import { ReviewIssuesPanel } from "@/components/shared/review-issues-panel";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -23,7 +25,6 @@ import { hasText } from "@/lib/has-text";
 import { createXiaohongshuContent, normalizeXiaohongshuContent, saveXiaohongshuVariant } from "@/lib/xiaohongshu/content";
 import {
   countMissingXiaohongshuImages,
-  fillXiaohongshuImagePlan,
 } from "@/lib/xiaohongshu/generate-images";
 import { mergeImportedUrlsIntoImagePlan } from "@/lib/xiaohongshu/import-local-images-shared";
 import {
@@ -139,7 +140,11 @@ export function XiaohongshuEditor({
   const [converting, setConverting] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [imageRegenerating, setImageRegenerating] = useState(false);
-  const [imageRendering, setImageRendering] = useState(false);
+  const { imageJobs, generateXiaohongshuImages } = useAppStore();
+  const [imageImporting, setImageRendering] = useState(false);
+  const job = imageJobs[draft?.id ?? ""];
+  const imageRendering = imageImporting || Boolean(job?.running);
+  const previousImageRunning = useRef(false);
   const [imageProgress, setImageProgress] = useState("");
   const handledRequestIdRef = useRef(0);
   const conversionInFlightRef = useRef(false);
@@ -171,10 +176,21 @@ export function XiaohongshuEditor({
     ) {
       return;
     }
-    const normalized = normalizeXiaohongshuContent(content);
+    let normalized = normalizeXiaohongshuContent(content);
+    if (current?.id === content.id && current.xiaohongshu && normalized.xiaohongshu && (job?.running || previousImageRunning.current)) {
+      const incoming = normalized.xiaohongshu.imagePlan;
+      normalized = { ...current, updatedAt: content.updatedAt, xiaohongshu: { ...current.xiaohongshu,
+        imagePlan: current.xiaohongshu.imagePlan.map(image => {
+          const next = incoming.find(candidate => candidate.index === image.index && imagePlanSignature(candidate) === imagePlanSignature(image));
+          return next ? { ...image, imageUrl: next.imageUrl, imageError: next.imageError } : image;
+        }),
+      } };
+    }
     draftRef.current = normalized;
     setDraft(normalized);
-  }, [content]);
+  }, [content, job?.running]);
+
+  useEffect(() => { previousImageRunning.current = Boolean(job?.running); }, [job?.running]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -207,74 +223,19 @@ export function XiaohongshuEditor({
   );
 
   const renderImagesForDraft = useCallback(
-    async (
-      contentItem: ContentItem,
-      options: { onlyMissing: boolean; successToast: string }
-    ) => {
+    async (contentItem: ContentItem, options: { onlyMissing: boolean; successToast: string }) => {
       if (!contentItem.xiaohongshu) return;
-      if (imageRenderInFlightRef.current) {
-        toast.error("配图生成进行中，请稍候");
-        return;
-      }
-      const requestId = ++imageRenderRequestIdRef.current;
-      imageRenderInFlightRef.current = true;
-      setImageRendering(true);
-      setImageProgress("准备生图…");
-      try {
-        const imagePlan = await fillXiaohongshuImagePlan(
-          contentItem.xiaohongshu.imagePlan,
-          {
-            visualDirection:
-              contentItem.xiaohongshu.visualDirection ||
-              XIAOHONGSHU_FIXED_VISUAL_DIRECTION,
-            onlyMissing: options.onlyMissing,
-            onProgress: (event) => {
-              if (!mountedRef.current || requestId !== imageRenderRequestIdRef.current) {
-                return;
-              }
-              if (event.status === "start") {
-                setImageProgress(`生图 ${event.index}/${event.total}…`);
-              } else if (event.status === "error") {
-                setImageProgress(
-                  `图 ${event.index} 失败：${event.message ?? "未知错误"}`
-                );
-              }
-            },
-          }
-        );
-        if (
-          !mountedRef.current ||
-          requestId !== imageRenderRequestIdRef.current ||
-          draftRef.current?.id !== contentItem.id
-        ) {
-          return;
-        }
-        const latest = draftRef.current;
-        applyImagePlan(latest?.xiaohongshu ? latest : contentItem, imagePlan);
-        const missing = countMissingXiaohongshuImages(imagePlan);
-        if (missing > 0) {
-          toast.error(`仍有 ${missing} 张未生成（额度不足或接口失败时可点「生成配图」重试）`);
-        } else {
-          toast.success(options.successToast);
-        }
-      } catch (error) {
-        if (mountedRef.current && requestId === imageRenderRequestIdRef.current) {
-          toast.error(error instanceof Error ? error.message : "配图生成失败");
-        }
-      } finally {
-        if (mountedRef.current && requestId === imageRenderRequestIdRef.current) {
-          imageRenderInFlightRef.current = false;
-          setImageRendering(false);
-          setImageProgress("");
-        }
-      }
-    },
-    [applyImagePlan]
+      await generateXiaohongshuImages(contentItem, options.onlyMissing);
+    }, [generateXiaohongshuImages]
   );
 
   const convertFull = useCallback(
     async (confirmOverwrite: boolean) => {
       if (conversionInFlightRef.current) return false;
+      if (imageJobs[draftRef.current?.id ?? ""]?.running) {
+        toast.message("该稿件正在后台生图，请完成后再重新转换");
+        return false;
+      }
       if (!sourceContent || !hasText(sourceContent.body)) {
         toast.error("请先填写公众号正文");
         return false;
@@ -333,7 +294,7 @@ export function XiaohongshuEditor({
 
         conversionInFlightRef.current = false;
         setConverting(false);
-        await renderImagesForDraft(next, {
+        void renderImagesForDraft(next, {
           onlyMissing: false,
           successToast: "小红书配图已生成",
         });
@@ -348,7 +309,7 @@ export function XiaohongshuEditor({
         if (mountedRef.current) setConverting(false);
       }
     },
-    [onConversionSuccess, onSave, publishVoice, renderImagesForDraft, sourceContent]
+    [onConversionSuccess, onSave, publishVoice, renderImagesForDraft, sourceContent, imageJobs]
   );
 
   useEffect(() => {
@@ -610,6 +571,8 @@ export function XiaohongshuEditor({
     if (!currentDraft?.xiaohongshu) {
       throw new Error("暂无小红书图片规划");
     }
+    if (imageJobs[currentDraft.id]?.running) return;
+    onSave(currentDraft, "user_edit");
     await renderImagesForDraft(currentDraft, {
       onlyMissing,
       successToast: onlyMissing ? "缺失配图已补全" : "小红书配图已重新生成",
@@ -621,7 +584,7 @@ export function XiaohongshuEditor({
     if (!currentDraft?.xiaohongshu) {
       throw new Error("暂无小红书图片规划");
     }
-    if (imageRenderInFlightRef.current || conversionInFlightRef.current) {
+    if (imageRendering || imageRenderInFlightRef.current || conversionInFlightRef.current) {
       throw new Error("请等待当前转换/生图完成后再导入");
     }
     const requestId = ++imageRenderRequestIdRef.current;
@@ -799,7 +762,7 @@ export function XiaohongshuEditor({
         onImportLocalImages={importLocalImages}
         imageRegenerating={imageRegenerating}
         imageRendering={imageRendering}
-        imageProgress={imageProgress}
+        imageProgress={job?.running ? job.progress : imageProgress || job?.progress}
       />
 
       {latestReview ? (

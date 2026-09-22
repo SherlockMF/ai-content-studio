@@ -28,6 +28,7 @@ import {
 import { WECHAT_THEMES, WechatThemeId } from "@/lib/markdown/wechat-theme";
 import { FactDiffReport } from "@/lib/fact-diff";
 import { cn } from "@/lib/utils";
+import { useAppStore } from "@/lib/store/app-store";
 
 interface WechatPublishPanelProps {
   title: string;
@@ -50,6 +51,11 @@ export function WechatPublishPanel({
   factDiff,
   factDiffAcknowledged,
 }: WechatPublishPanelProps) {
+  const { contentItems } = useAppStore();
+  const xiaohongshuImageUrls = useMemo(() => contentItems
+    .filter(item => item.platform === "xiaohongshu")
+    .flatMap(item => item.xiaohongshu?.imagePlan.flatMap(image => image.imageUrl ? [image.imageUrl] : []) ?? []),
+  [contentItems]);
   const [themeId, setThemeId] = useState<WechatThemeId>("tech-eval");
   const [previewHtml, setPreviewHtml] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -63,17 +69,25 @@ export function WechatPublishPanel({
         digest,
         body,
         reviewScore,
+        xiaohongshuImageUrls,
         factDiff,
         factDiffAcknowledged,
       }),
-    [title, digest, body, reviewScore, factDiff, factDiffAcknowledged]
+    [title, digest, body, reviewScore, factDiff, factDiffAcknowledged, xiaohongshuImageUrls]
   );
 
   const imageCheck = checks.find((c) => c.id === "images");
   const canCopyRichText =
     Boolean(body.trim()) &&
     checks
-      .filter((c) => c.id !== "digest" && c.id !== "review" && c.id !== "images")
+      .filter(
+        (c) =>
+          c.id !== "digest" &&
+          c.id !== "review" &&
+          c.id !== "images" &&
+          c.id !== "table-preview-reminder" &&
+          c.id !== "sticker-reminder"
+      )
       .every((c) => c.ok) &&
     placeholderImages === 0;
 
@@ -138,6 +152,8 @@ export function WechatPublishPanel({
   };
 
   const handleExportWord = async () => {
+    const platformCheck = checks.find(check => check.id === "image-platform" && !check.ok);
+    if (platformCheck) { toast.error(platformCheck.hint); return; }
     setExportLoading(true);
     try {
       const { blob, fileName, imageCount } = await buildWechatPublishBundle({
@@ -159,6 +175,8 @@ export function WechatPublishPanel({
   };
 
   const handleExportZip = async () => {
+    const platformCheck = checks.find(check => check.id === "image-platform" && !check.ok);
+    if (platformCheck) { toast.error(platformCheck.hint); return; }
     setExportLoading(true);
     try {
       const { blob, fileName } = await buildMarkdownZipBundle({
