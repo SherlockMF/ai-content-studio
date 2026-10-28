@@ -1,5 +1,7 @@
 /** 从上传文件提取纯文本（供补充信息 / AI 改稿） */
 
+import { extractDocumentText } from "@/lib/api-client/files";
+
 const MAX_EXTRACT_CHARS = 24_000;
 export const MAX_KNOWLEDGE_FILE_BYTES = 10 * 1024 * 1024;
 
@@ -26,16 +28,6 @@ export function appendSupplementaryDocument(
   return base ? `${base}\n\n${block}` : block;
 }
 
-async function extractViaApi(file: File, mode: "supplementary" | "knowledge") {
-  const form = new FormData();
-  form.append("file", file);
-  form.append("mode", mode);
-  const res = await fetch("/api/documents/extract", { method: "POST", body: form });
-  const data = (await res.json()) as { text?: string; message?: string };
-  if (!res.ok) throw new Error(data.message || "文档解析失败");
-  return data.text ?? "";
-}
-
 /** 浏览器端：txt / md 直接读；docx / pdf 走 API。 */
 export async function extractTextFromUpload(file: File): Promise<string> {
   const name = file.name.toLowerCase();
@@ -43,7 +35,7 @@ export async function extractTextFromUpload(file: File): Promise<string> {
     return file.text();
   }
   if (name.endsWith(".docx") || name.endsWith(".pdf")) {
-    return extractViaApi(file, "supplementary");
+    return extractDocumentText(file, "supplementary");
   }
   throw new Error("暂不支持该格式，请上传 .docx / .pdf / .md / .txt");
 }
@@ -60,7 +52,7 @@ export async function extractKnowledgeFile(file: File): Promise<string> {
     return file.text();
   }
   if (name.endsWith(".docx") || name.endsWith(".pdf")) {
-    return extractViaApi(file, "knowledge");
+    return extractDocumentText(file, "knowledge");
   }
   throw new Error("暂不支持该格式，请上传 .docx / .pdf / .md / .txt");
 }

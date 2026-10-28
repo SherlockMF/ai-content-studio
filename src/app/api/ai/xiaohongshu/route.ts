@@ -1,8 +1,6 @@
-import { NextResponse } from "next/server";
+import { readJsonBody, toResponse } from "@/lib/api/handler";
 import { handleXiaohongshuRequest } from "./handler";
 
 export async function POST(request: Request) {
-  const body = await request.json().catch(() => ({}));
-  const result = await handleXiaohongshuRequest(body);
-  return NextResponse.json(result.payload, { status: result.status });
+  return toResponse(await handleXiaohongshuRequest(await readJsonBody(request)));
 }

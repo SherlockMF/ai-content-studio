@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { FileText, Home, Lightbulb, Settings, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAppStore } from "@/lib/store/app-store";
+import { useContentState, useImageJobs } from "@/lib/store/app-store";
 
 const navItems = [
   { href: "/dashboard", label: "工作台", icon: Home },
@@ -24,7 +24,8 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const { imageJobs, contentItems } = useAppStore();
+  const imageJobs = useImageJobs();
+  const { contentItems } = useContentState();
   const runningImages = Object.entries(imageJobs).filter(([, job]) => job.running);
 
   return (

@@ -8,12 +8,14 @@ import { EmptyState, ErrorState } from "@/components/shared/states";
 import { TopicWorkbench } from "@/components/shared/topic-workbench";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { useAppStore } from "@/lib/store/app-store";
+import { useContentState, useStoreActions, useWorkspaceState } from "@/lib/store/app-store";
 import { formatScheduleLabel } from "@/lib/schedule";
 import { topicsWithoutWechatDraft } from "@/lib/workspace-lists";
 
 export default function TopicsPage() {
-  const { topics, contentItems, deleteTopic, scheduleContent } = useAppStore();
+  const { topics } = useWorkspaceState();
+  const { contentItems } = useContentState();
+  const { deleteTopic, scheduleContent } = useStoreActions();
   const [error, setError] = useState<string | null>(null);
   const poolTopics = topicsWithoutWechatDraft(topics, contentItems);
 

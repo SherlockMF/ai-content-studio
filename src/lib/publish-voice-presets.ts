@@ -1,4 +1,4 @@
-import { DEFAULT_SECTIONS } from "@/lib/mock-data";
+import { DEFAULT_SECTIONS } from "@/lib/defaults";
 import { ContentSection, PublishVoice } from "@/types/domain";
 
 export interface PublishVoicePreset {
@@ -84,7 +84,6 @@ export const PUBLISH_VOICE_PRESETS: PublishVoicePreset[] = [
 export function findPublishVoicePreset(voice: PublishVoice): PublishVoicePreset {
   const matched = PUBLISH_VOICE_PRESETS.find(
     (preset) =>
-      preset.voice.accountName === voice.accountName &&
       preset.voice.voice === voice.voice
   );
   return matched ?? PUBLISH_VOICE_PRESETS[0];
@@ -97,5 +96,6 @@ export function applyPublishVoicePreset(
   return {
     ...current,
     ...preset.voice,
+    accountName: current.accountName,
   };
 }

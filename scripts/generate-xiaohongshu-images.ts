@@ -12,7 +12,7 @@ import { DEMO_PUBLISH_VOICE } from "../src/lib/mock-data";
 import { generateXiaohongshuArticle } from "../src/lib/ai/generators";
 import { generateDashScopeImage } from "../src/lib/ai/image/dashscope-image";
 import { IMAGE_SIZE_BY_PURPOSE } from "../src/lib/ai/image-settings";
-import { XIAOHONGSHU_FIXED_VISUAL_DIRECTION } from "../src/lib/ai/xiaohongshu-prompt";
+import { XIAOHONGSHU_FIXED_VISUAL_DIRECTION } from "../src/lib/xiaohongshu/visual-rules";
 import type { XiaohongshuGenerationResult } from "../src/types/domain";
 
 async function loadEnvLocal(root: string) {

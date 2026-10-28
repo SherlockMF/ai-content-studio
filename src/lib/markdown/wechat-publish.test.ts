@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildWechatPublishChecks } from "./wechat-publish";
+import { buildWechatPublishChecks, buildWechatPublishHtml, buildWechatHtmlDocument } from "./wechat-publish";
 
 test("公众号正文误用小红书配图时标出具体位置", () => {
   const checks = buildWechatPublishChecks({
@@ -10,6 +10,16 @@ test("公众号正文误用小红书配图时标出具体位置", () => {
   const check = checks.find(item => item.id === "image-platform");
   assert.equal(check?.ok, false);
   assert.match(check?.hint ?? "", /第 2 张/);
+});
+
+test("HTML download and preview share the same theme rendering and escape document title", async () => {
+  const input = { title: '</title><script>x()</script>', body: '## 章节\n\n正文 **重点**', theme: 'editorial' as const, numberSections: true, emphasize: false };
+  const preview = await buildWechatPublishHtml({ ...input, embedImages: false });
+  const document = await buildWechatHtmlDocument(input);
+  assert.ok(document.includes(preview));
+  assert.match(document, /charset="utf-8"/);
+  assert.doesNotMatch(document, /<script>/);
+  assert.match(document, /&lt;script&gt;/);
 });
 
 test("独立的公众号配图不因同选题小红书存在而被拦截", () => {

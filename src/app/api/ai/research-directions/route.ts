@@ -1,49 +1,49 @@
-import { NextResponse } from "next/server";
-import { publishedArticlesSchema } from "@/lib/ai/published-topic-check";
-import { buildHarnessFromVoice } from "@/lib/ai/build-harness";
+import { z } from "zod";
+import { buildGenerationContext } from "@/lib/ai/context";
 import { generateResearchDirections } from "@/lib/ai/generators";
-import { DEMO_MATERIALS, DEMO_PUBLISH_VOICE } from "@/lib/mock-data";
-import { ContentGoal, ContentSection, PublishVoice } from "@/types/domain";
-import { MaterialItem } from "@/types/domain";
-import { formatKnowledgeReferences } from "@/lib/knowledge/prompt-references";
+import { publishedArticlesSchema } from "@/lib/ai/published-topic-check";
+import { defineHandler, HandlerError } from "@/lib/api/handler";
+import { arrayOf, llmRequestSchema, objectOf } from "@/lib/api/schemas";
+import { DEFAULT_PUBLISH_VOICE } from "@/lib/defaults";
+import type { ContentGoal, ContentSection, MaterialItem, PublishVoice } from "@/types/domain";
 
-export async function POST(request: Request) {
-  const body = await request.json().catch(() => ({}));
-  const history = publishedArticlesSchema.safeParse(body.publishedArticles ?? []);
-  if (!history.success) return NextResponse.json({ message: "已发布稿件数据不完整，请刷新后重试" }, { status: 400 });
-  const voice = (body.voice ?? DEMO_PUBLISH_VOICE) as PublishVoice;
-  const materials = (body.materials ?? DEMO_MATERIALS) as MaterialItem[];
-  const hotspot = body.hotspot as
-    | { id: string; title: string; url: string; summary?: string }
-    | undefined;
+type HotspotInput = { id: string; title: string; url: string; summary?: string };
 
-  if (!hotspot?.title || !hotspot.url) {
-    return NextResponse.json({ message: "请先选择热点" }, { status: 400 });
-  }
+const schema = z.object({
+  publishedArticles: z.preprocess((value) => value ?? [], publishedArticlesSchema),
+  voice: objectOf<PublishVoice>().nullish(),
+  materials: arrayOf<MaterialItem>().nullish(),
+  hotspot: objectOf<HotspotInput>().nullish(),
+  section: z.unknown().optional(),
+  goal: z.unknown().optional(),
+  knowledgeReferences: z.unknown().optional(),
+  llm: llmRequestSchema,
+});
 
-  const harness = buildHarnessFromVoice(voice, materials, {
-    section: (body.section as ContentSection) ?? voice.defaultSections[0] ?? "AI 通识",
-    goal: (body.goal as ContentGoal) ?? "建立专业信任",
-  });
-  const materialBodies = materials
-    .filter((item) => item.enabled && harness.materialIds.includes(item.id))
-    .map((item) => item.body);
-  const knowledgeBodies = formatKnowledgeReferences(body.knowledgeReferences);
-
-  try {
-    const result = await generateResearchDirections({
+export const { POST } = defineHandler({
+  schema,
+  invalidMessage: "已发布稿件数据不完整，请刷新后重试",
+  failureMessage: "方向生成失败",
+  run: (input) => {
+    const hotspot = input.hotspot;
+    if (!hotspot?.title || !hotspot.url) throw new HandlerError("请先选择热点");
+    const voice = input.voice ?? DEFAULT_PUBLISH_VOICE;
+    const context = buildGenerationContext({
       voice,
-      harness,
-      hotspot,
-      materials: [...materialBodies, ...knowledgeBodies],
-      publishedArticles: history.data,
-      llm: body.llm,
+      materials: input.materials ?? [],
+      knowledgeReferences: input.knowledgeReferences,
+      harnessOverrides: {
+        section: (input.section as ContentSection) ?? voice.defaultSections[0] ?? "AI 通识",
+        goal: (input.goal as ContentGoal) ?? "建立专业信任",
+      },
     });
-    return NextResponse.json(result);
-  } catch (error) {
-    return NextResponse.json(
-      { message: error instanceof Error ? error.message : "方向生成失败" },
-      { status: 500 }
-    );
-  }
-}
+    return generateResearchDirections({
+      voice,
+      harness: context.harness,
+      hotspot,
+      materials: context.materials,
+      publishedArticles: input.publishedArticles,
+      llm: input.llm,
+    });
+  },
+});

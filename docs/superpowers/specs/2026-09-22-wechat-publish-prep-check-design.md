@@ -22,21 +22,21 @@
    - 依据：从零出稿已在 `generateWechatArticlePipeline` 内调用 `deAiRewrite`（human-writing + khazix-writer）
    - 未跳过时：测评稿用 `preserve_structure`，否则 `polish`；成功后以 `ai_rewrite` 落盘
 3. **补图**
-   - 正文明显无配图（无 markdown 图片位）→ 不调配图 API，进度/toast 为 `补图：无图`，不视为失败
-   - 否则跑现有 `generateWechatMedia`（匹配保留、缺图补齐）
+   - 无论正文是否已有 markdown 图片位，都调用现有 `generateWechatMedia`（`/api/ai/wechat/media-plan` + 生图）
+   - 无图时由 media-plan 规划封面 + 至少三张正文图并生成；有图时匹配保留、缺图补齐
+   - 进度：`检查配图…` / `规划并生成配图…`（及现有逐张进度）
 4. **质检**：现有 `runReview`，写入质检结果
 
 ## 失败策略
 
 - 去 AI 味失败 → 停，不补图、不质检
 - 补图全部/部分失败 → toast 提示，**仍继续质检**
-- 「补图：无图」→ 继续质检
 - 质检失败 → 只报错，不回滚正文与配图
 
 ## 进度文案
 
 - `去 AI 味中…` / `已去过 AI 味，跳过`
-- `补图：无图` / `检查配图…`（及现有逐张进度）
+- `检查配图…` / `规划并生成配图…`（及现有逐张进度）
 - `质检中…`
 
 ## 实现约束

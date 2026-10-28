@@ -16,6 +16,8 @@ import {
 import { countMissingXiaohongshuImages } from "@/lib/xiaohongshu/generate-images";
 import { copyNotePreservingLines } from "@/lib/xiaohongshu/clipboard";
 import { cn } from "@/lib/utils";
+import { PublishChecks } from "@/components/shared/publish-checks";
+import { copyWithToast, downloadBlob } from "@/lib/client-actions";
 import type {
   ContentReview,
   XiaohongshuDraftData,
@@ -62,9 +64,12 @@ export function XiaohongshuPublishPanel({
   const busy = imageRegenerating || imageRendering || exporting;
 
   const copyText = async (text: string, successMessage: string, preserveLines = false) => {
+    if (!preserveLines) {
+      await copyWithToast(text, successMessage);
+      return;
+    }
     try {
-      if (preserveLines) await copyNotePreservingLines(text);
-      else await navigator.clipboard.writeText(text);
+      await copyNotePreservingLines(text);
       toast.success(successMessage);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "复制失败，请检查剪贴板权限");
@@ -74,23 +79,13 @@ export function XiaohongshuPublishPanel({
   const downloadBundle = async () => {
     if (busy) return;
     setExporting(true);
-    let objectUrl: string | undefined;
-
     try {
       const { blob, fileName } = await buildXiaohongshuPublishBundle(data, tone, sourceTitle);
-      objectUrl = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = objectUrl;
-      anchor.download = fileName;
-      anchor.click();
+      downloadBlob(blob, fileName);
       toast.success("小红书发布包已下载");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "导出失败，请稍后重试");
     } finally {
-      if (objectUrl) {
-        const url = objectUrl;
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-      }
       setExporting(false);
     }
   };
@@ -134,27 +129,7 @@ export function XiaohongshuPublishPanel({
       </CardHeader>
 
       <CardContent className="space-y-5">
-        <ul className="grid gap-1.5 sm:grid-cols-2">
-          {checks.map((check) => (
-            <li
-              key={check.id}
-              className={cn(
-                "flex items-start gap-2 rounded-md border px-2.5 py-1.5 text-xs",
-                check.ok
-                  ? "border-emerald-200 bg-white text-slate-700"
-                  : "border-amber-200 bg-amber-50 text-amber-900"
-              )}
-            >
-              <span aria-hidden>{check.ok ? "✅" : "⚠️"}</span>
-              <span>
-                {check.label}
-                {check.hint ? (
-                  <span className="mt-0.5 block text-[11px] opacity-80">{check.hint}</span>
-                ) : null}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <PublishChecks checks={checks} />
 
         <section className="rounded-xl border bg-white p-3">
           <div className="mb-3 flex items-center justify-between gap-2">

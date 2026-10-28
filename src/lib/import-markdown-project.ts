@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import { uploadArticleImage } from "@/lib/api-client/files";
 import { IMAGE_MD_RE } from "@/lib/export-assets";
 import { parseMarkdownDraft } from "@/lib/import-markdown";
 
@@ -32,17 +33,6 @@ function pickMarkdownPath(paths: string[]) {
   const wechat = mdPaths.find((p) => /公众号/.test(p));
   if (wechat) return wechat;
   return mdPaths.sort((a, b) => b.length - a.length)[0] ?? null;
-}
-
-async function uploadImageFile(file: File | Blob, fileName: string) {
-  const form = new FormData();
-  form.append("file", file, fileName);
-  const res = await fetch("/api/upload/article-image", { method: "POST", body: form });
-  const data = (await res.json()) as { url?: string; message?: string };
-  if (!res.ok || !data.url) {
-    throw new Error(data.message || `图片上传失败：${fileName}`);
-  }
-  return data.url;
 }
 
 function buildAssetLookup(files: Map<string, File | Blob>) {
@@ -113,7 +103,7 @@ async function rewriteMarkdownImages(
       skipped += 1;
       continue;
     }
-    const publicUrl = await uploadImageFile(asset.file, asset.name);
+    const publicUrl = await uploadArticleImage(asset.file, asset.name);
     uploaded += 1;
     replacements.set(full, `![${alt}](${publicUrl})`);
   }

@@ -35,12 +35,6 @@ export function normalizeLLMSettings(input?: Partial<LLMClientSettings> | null):
       Object.entries(raw).filter(([, value]) => value !== undefined && value !== null)
     ),
   };
-  // 清理历史 mock 配置
-  const legacy = merged as { model?: string; provider?: string };
-  if (legacy.model === "mock" || legacy.provider === "mock") {
-    merged.model = "deepseek-v4-flash";
-    merged.provider = "deepseek";
-  }
   if (merged.model !== "deepseek-v4-flash" && merged.model !== "deepseek-v4-pro") {
     merged.model = "deepseek-v4-flash";
   }

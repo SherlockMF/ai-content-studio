@@ -1,34 +1,48 @@
-import { NextResponse } from "next/server";
+import { z } from "zod";
 import { reviewContent, reviewXiaohongshuContent } from "@/lib/ai/reviewers";
+import { defineHandler } from "@/lib/api/handler";
+import { llmRequestSchema } from "@/lib/api/schemas";
+import type { XiaohongshuImagePrompt } from "@/types/domain";
 
-export async function POST(request: Request) {
-  const body = await request.json();
-  try {
-    const result =
-      body.platform === "xiaohongshu"
-        ? await reviewXiaohongshuContent({
-            sourceBody: body.sourceBody ?? "",
-            title: body.title ?? "",
-            body: body.body ?? "",
-            cta: body.cta ?? "",
-            hashtags: Array.isArray(body.hashtags) ? body.hashtags : [],
-            visualDirection: body.visualDirection ?? "",
-            imagePlan: Array.isArray(body.imagePlan) ? body.imagePlan : [],
-            targetAudience: body.targetAudience ?? "",
-            llm: body.llm,
-          })
-        : await reviewContent({
-            title: body.title ?? "",
-            body: body.body ?? "",
-            targetAudience: body.targetAudience ?? "",
-            supplementaryNotes: body.supplementaryNotes,
-            llm: body.llm,
-          });
-    return NextResponse.json(result);
-  } catch (error) {
-    return NextResponse.json(
-      { message: error instanceof Error ? error.message : "质检失败" },
-      { status: 500 }
-    );
-  }
-}
+const text = z.unknown().transform((value) => (typeof value === "string" ? value : value == null ? "" : String(value)));
+const list = <T>() => z.unknown().transform((value) => (Array.isArray(value) ? (value as T[]) : []));
+
+const schema = z.object({
+  platform: z.unknown().optional(),
+  title: text,
+  body: text,
+  cta: text,
+  sourceBody: text,
+  visualDirection: text,
+  targetAudience: text,
+  hashtags: list<string>(),
+  imagePlan: list<XiaohongshuImagePrompt>(),
+  supplementaryNotes: z.string().nullish(),
+  llm: llmRequestSchema,
+});
+
+export const { POST } = defineHandler({
+  schema,
+  invalidMessage: "质检请求参数不完整",
+  failureMessage: "质检失败",
+  run: (input) =>
+    input.platform === "xiaohongshu"
+      ? reviewXiaohongshuContent({
+          sourceBody: input.sourceBody,
+          title: input.title,
+          body: input.body,
+          cta: input.cta,
+          hashtags: input.hashtags,
+          visualDirection: input.visualDirection,
+          imagePlan: input.imagePlan,
+          targetAudience: input.targetAudience,
+          llm: input.llm,
+        })
+      : reviewContent({
+          title: input.title,
+          body: input.body,
+          targetAudience: input.targetAudience,
+          supplementaryNotes: input.supplementaryNotes ?? undefined,
+          llm: input.llm,
+        }),
+});

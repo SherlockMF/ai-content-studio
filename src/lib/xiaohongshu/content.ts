@@ -5,11 +5,10 @@ import type {
   XiaohongshuTone,
   XiaohongshuVariant,
 } from "@/types/domain";
-import { XIAOHONGSHU_FIXED_VISUAL_DIRECTION } from "@/lib/ai/xiaohongshu-prompt";
+import { XIAOHONGSHU_FIXED_VISUAL_DIRECTION } from "@/lib/xiaohongshu/visual-rules";
 import { clampXiaohongshuBody, clampXiaohongshuTitle } from "@/lib/xiaohongshu/limits";
 import {
   extractHashtagsFromText,
-  foldXiaohongshuVariant,
   foldXiaohongshuVariants,
 } from "@/lib/xiaohongshu/note-body";
 

@@ -1,6 +1,6 @@
 import type { ContentItem, Platform, Topic } from "@/types/domain";
-import { isPublishedLikeStatus } from "@/lib/content-status";
-import { toDateKey } from "@/lib/schedule";
+import { isFixedForAutoSchedule, isWeekday, toDateKey } from "@/lib/schedule-policy";
+import { topicsWithoutWechatDraft } from "@/lib/workspace-lists";
 
 type Candidate = {
   id: string; topicId: string; platform: Platform; title: string;
@@ -40,16 +40,13 @@ export function planAutomaticSchedule(contentItems: ContentItem[], topics: Topic
   };
   for (const item of contentItems) {
     const candidate = makeCandidate(item, topicMap.get(item.topicId));
-    const published = isPublishedLikeStatus(item.status) || Boolean(item.publishedAt);
-    if (published || item.scheduleMode === "manual" || (item.scheduledAt && item.scheduleMode !== "auto")) {
+    if (isFixedForAutoSchedule(item)) {
       const date = item.scheduledAt || item.publishedAt;
       if (date) fixed.push({ date: toDateKey(new Date(date)), candidate });
     } else pending.push(candidate);
   }
-  for (const topic of topics) {
-    if (!contentItems.some(item => item.topicId === topic.id && item.platform === "wechat")) {
-      pending.push(makeCandidate(undefined, topic));
-    }
+  for (const topic of topicsWithoutWechatDraft(topics, contentItems)) {
+    pending.push(makeCandidate(undefined, topic));
   }
   const assignments = new Map<string, { date: string; reason: string }>();
   for (const platform of ["wechat", "xiaohongshu", "douyin"] as const) {
@@ -61,7 +58,7 @@ export function planAutomaticSchedule(contentItems: ContentItem[], topics: Topic
     // 排期按日期占位，中午仅用于保存日期，不是当天排稿的截止时间。
     while (pool.length) {
       const key = toDateKey(cursor);
-      if (cursor.getDay() !== 0 && cursor.getDay() !== 6 && !occupied.has(key)) {
+      if (isWeekday(cursor) && !occupied.has(key)) {
         const recent = history.filter(item => item.date < key).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 2);
         const upcoming = history.filter(item => item.date > key).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 1);
         const score = (candidate: Candidate) => {

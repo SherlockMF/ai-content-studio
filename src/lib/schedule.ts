@@ -1,29 +1,15 @@
-import { isArchivedStatus, isPublishedLikeStatus } from "@/lib/content-status";
+import {
+  isCascadeSchedulable,
+  isWeekday,
+  scheduleDateKey,
+  startOfDay,
+  toDateKey,
+  toNoonIso,
+} from "@/lib/schedule-policy";
 import { ContentItem } from "@/types/domain";
+import { isPublishedLikeStatus } from "@/lib/content-status";
 
-function startOfDay(date: Date) {
-  const d = new Date(date);
-  d.setHours(0, 0, 0, 0);
-  return d;
-}
-
-export function toDateKey(date: Date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-function toNoonIso(date: Date) {
-  const d = new Date(date);
-  d.setHours(12, 0, 0, 0);
-  return d.toISOString();
-}
-
-function isWeekday(date: Date) {
-  const day = date.getDay();
-  return day >= 1 && day <= 5;
-}
+export { isCascadeSchedulable, isWeekdayDateKey, toDateKey } from "@/lib/schedule-policy";
 
 /** 对齐到当周周日 00:00（列顶 = 周日，与贡献图一致） */
 export function startOfWeekSunday(date: Date) {
@@ -49,15 +35,9 @@ export function occupiedScheduleKeys(contentItems: ContentItem[]): Set<string> {
   const keys = new Set<string>();
   contentItems.forEach((item) => {
     if (!item.scheduledAt) return;
-    keys.add(item.scheduledAt.slice(0, 10));
+    keys.add(scheduleDateKey(item.scheduledAt));
   });
   return keys;
-}
-
-export function isWeekdayDateKey(dateKey: string) {
-  const [y, m, d] = dateKey.split("-").map(Number);
-  const date = new Date(y, m - 1, d);
-  return isWeekday(date);
 }
 
 /** 下一个尚未占用的工作日 ISO（中午），今天是工作日且空闲则用今天 */
@@ -98,14 +78,6 @@ function dateKeyPlusOneDay(dateKey: string) {
   return date;
 }
 
-/** 可被自动顺延：公众号、未归档、且尚未发布 */
-export function isCascadeSchedulable(item: ContentItem) {
-  if (item.platform !== "wechat" || item.scheduleMode === "manual") return false;
-  if (isArchivedStatus(item.status)) return false;
-  if (isPublishedLikeStatus(item.status)) return false;
-  return true;
-}
-
 function lockedScheduleKeys(contentItems: ContentItem[], exceptIds: Set<string> = new Set()) {
   const keys = new Set<string>();
   for (const item of contentItems) {
@@ -113,7 +85,7 @@ function lockedScheduleKeys(contentItems: ContentItem[], exceptIds: Set<string> 
     if (!item.scheduledAt) continue;
     // 已发布 / 已归档 / 非可顺延稿的日期视为占用，不可被挤占
     if (!isCascadeSchedulable(item)) {
-      keys.add(item.scheduledAt.slice(0, 10));
+      keys.add(scheduleDateKey(item.scheduledAt));
     }
   }
   return keys;
@@ -238,6 +210,24 @@ export type ScheduleHeatCell = {
   date: Date;
   items: ContentItem[];
 };
+
+export function getScheduleHeatTone(items: ContentItem[]): "empty" | "scheduled" | "published" {
+  if (items.some((item) => isPublishedLikeStatus(item.status))) return "published";
+  if (items.some((item) => item.body.trim())) return "scheduled";
+  return "empty";
+}
+
+export function getScheduleHeatCounts(items: ContentItem[]) {
+  return items.reduce(
+    (counts, item) => {
+      if (!item.scheduledAt) return counts;
+      if (isPublishedLikeStatus(item.status)) counts.published++;
+      else if (item.body.trim()) counts.scheduled++;
+      return counts;
+    },
+    { published: 0, scheduled: 0 }
+  );
+}
 
 export type ScheduleMonthLabel = {
   weekIndex: number;

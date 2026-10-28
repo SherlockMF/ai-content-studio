@@ -1,7 +1,6 @@
-import { NextResponse } from "next/server";
+import { readJsonBody, toResponse } from "@/lib/api/handler";
 import { handleReviewRevision } from "./handler";
 
 export async function POST(request: Request) {
-  const result = await handleReviewRevision(await request.json().catch(() => null));
-  return NextResponse.json(result.payload, { status: result.status });
+  return toResponse(await handleReviewRevision(await readJsonBody(request)));
 }

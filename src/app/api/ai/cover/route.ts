@@ -1,38 +1,38 @@
-import { NextResponse } from "next/server";
+import { z } from "zod";
 import { suggestCoverImages } from "@/lib/ai/generators";
+import { defineHandler, HandlerError } from "@/lib/api/handler";
+import { llmRequestSchema } from "@/lib/api/schemas";
 import { isEvaluationDraft } from "@/lib/draft-profile";
 
-export async function POST(request: Request) {
-  const body = await request.json().catch(() => ({}));
-  const title = String(body.title ?? "");
-  const digest = body.digest ? String(body.digest) : undefined;
-  const coverCopy = body.coverCopy ? String(body.coverCopy) : undefined;
-  const articleBody = body.body ? String(body.body) : undefined;
-  const topicId = body.topicId ? String(body.topicId) : undefined;
+const optionalText = z.unknown().transform((value) => (value ? String(value) : undefined));
 
-  if (!title.trim() && !articleBody?.trim()) {
-    return NextResponse.json({ message: "请先填写标题或正文" }, { status: 400 });
-  }
+const schema = z.object({
+  title: z.unknown().transform((value) => String(value ?? "")),
+  digest: optionalText,
+  coverCopy: optionalText,
+  body: optionalText,
+  topicId: optionalText,
+  isEvaluation: z.unknown().optional(),
+  llm: llmRequestSchema,
+});
 
-  const isEvaluation =
-    typeof body.isEvaluation === "boolean"
-      ? body.isEvaluation
-      : isEvaluationDraft({ topicId: topicId ?? "", body: articleBody ?? "" });
-
-  try {
-    const result = await suggestCoverImages({
-      title: title || "（无标题）",
-      digest,
-      coverCopy,
-      body: articleBody,
+export const { POST } = defineHandler({
+  schema,
+  invalidMessage: "请先填写标题或正文",
+  failureMessage: "封面图分析失败",
+  run: (input) => {
+    if (!input.title.trim() && !input.body?.trim()) throw new HandlerError("请先填写标题或正文");
+    const isEvaluation =
+      typeof input.isEvaluation === "boolean"
+        ? input.isEvaluation
+        : isEvaluationDraft({ topicId: input.topicId ?? "", body: input.body ?? "" });
+    return suggestCoverImages({
+      title: input.title || "（无标题）",
+      digest: input.digest,
+      coverCopy: input.coverCopy,
+      body: input.body,
       isEvaluation,
-      llm: body.llm,
+      llm: input.llm,
     });
-    return NextResponse.json(result);
-  } catch (error) {
-    return NextResponse.json(
-      { message: error instanceof Error ? error.message : "封面图分析失败" },
-      { status: 500 }
-    );
-  }
-}
+  },
+});

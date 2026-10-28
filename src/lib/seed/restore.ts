@@ -70,6 +70,7 @@ export function maybeRestoreSeedContent(item: ContentItem): ContentItem {
   const status = normalizeContentStatus(item.status);
   return {
     ...seed,
+    wechatLayout: item.wechatLayout ?? seed.wechatLayout,
     status: status === "AI 草稿" ? normalizeContentStatus(seed.status) : status,
     scheduledAt: item.scheduledAt ?? seed.scheduledAt,
     publishedAt: item.publishedAt ?? seed.publishedAt,
@@ -185,6 +186,7 @@ export function syncBuiltinSeedArticles(state: {
     return {
       ...fresh,
       importBaseline: item.importBaseline,
+      wechatLayout: item.wechatLayout ?? fresh.wechatLayout,
       supplementaryNotes:
         item.supplementaryNotes !== undefined
           ? item.supplementaryNotes

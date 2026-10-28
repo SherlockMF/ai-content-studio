@@ -1,5 +1,9 @@
 import { generateArticleImage } from "@/lib/ai/image/client";
-import { XIAOHONGSHU_FIXED_VISUAL_DIRECTION, XIAOHONGSHU_NO_PAGE_BADGES } from "@/lib/ai/xiaohongshu-prompt";
+import {
+  XIAOHONGSHU_FIXED_VISUAL_DIRECTION,
+  XIAOHONGSHU_NO_PAGE_BADGES,
+  XIAOHONGSHU_RENDER_STYLE_RULES,
+} from "@/lib/xiaohongshu/visual-rules";
 import { BLINDTEST_XHS_ICON_PROMPT } from "@/lib/illustrations/cover-prompt-style";
 import type { XiaohongshuImagePrompt } from "@/types/domain";
 
@@ -23,9 +27,7 @@ export function buildXiaohongshuRenderPrompt(
     visualDirection.trim() || XIAOHONGSHU_FIXED_VISUAL_DIRECTION,
     basePrompt,
     `必须把这些中文大字清楚写在画面上（占画面主要阅读区，禁止用乱码线代替文字）：${overlay}`,
-    "风格硬性要求：小红书干货讲解幻灯片 / 信息图卡片；圆角信息块 + 小图标 + 可读中文大标题；暖米白底；与同组第1-3张讲解页同一风格。",
-    "严禁：抽象几何拼贴、文具静物摄影、笔记本样机、名片堆叠、空洞 UI mockup、无文字壁纸、科幻光效、看不清字、把 Cola 画成饮料罐。",
-    "竖版约 3:4，安全边距，手机滑动笔记多图观感。",
+    ...XIAOHONGSHU_RENDER_STYLE_RULES,
     brandIcons,
     XIAOHONGSHU_NO_PAGE_BADGES,
   ]

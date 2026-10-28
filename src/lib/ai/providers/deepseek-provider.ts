@@ -1,4 +1,4 @@
-import { ZodError, ZodSchema } from "zod";
+import { ZodError, type ZodType, type ZodTypeDef } from "zod";
 import { LLMMessage, LLMProvider } from "./types";
 
 interface DeepSeekProviderOptions {
@@ -32,9 +32,8 @@ export class DeepSeekProvider implements LLMProvider {
 
   async generateStructuredOutput<T>(
     messages: LLMMessage[],
-    schema: unknown
+    zodSchema: ZodType<T, ZodTypeDef, unknown>
   ): Promise<T> {
-    const zodSchema = schema as ZodSchema<T>;
     const withJsonHint: LLMMessage[] = [
       ...messages,
       {

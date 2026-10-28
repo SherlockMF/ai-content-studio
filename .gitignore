@@ -40,3 +40,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local generated artifacts and runtime uploads
+/output/
+/.superpowers/
+/public/article-assets/*
+!/public/article-assets/.gitkeep

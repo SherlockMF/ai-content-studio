@@ -7,22 +7,10 @@ import type {
 import { BLINDTEST_XHS_ICON_PROMPT } from "@/lib/illustrations/cover-prompt-style";
 import { PUBLISHED_CONTENT_RULES } from "@/lib/ai/published-content-rules";
 import { XIAOHONGSHU_COMPLIANCE_RULES } from "@/lib/content-ops/topic-publish-revision";
-
-/** 全账号统一的小红书配图视觉系统；转换与重规划都强制使用，不得按题材另起科技风。 */
-export const XIAOHONGSHU_FIXED_VISUAL_DIRECTION =
-  "暖色小红书图文笔记固定视觉系统（全账号统一，不得更换）：暖米白/浅杏底，柔和珊瑚与暖杏点缀，圆角信息块，彩色扁平或软 3D 小图标，清晰中文大标题，留白充足，像可滑动的干货讲解页；禁止冷蓝紫科技感、霓虹、深色赛博、金属科幻光效";
-
-export const XIAOHONGSHU_NO_PAGE_BADGES =
-  "整组图片统一不显示页码和角标：四角及边缘不得出现页码、页数分数、单独的装饰序号或进度标记。此规则覆盖原提示词、构图和图中文字中的任何页码要求；图片 index 仅用于文件排序，不得画进图中。正文内有意义的事实数字、步骤编号照常保留。";
-
-export function withFixedXiaohongshuVisualDirection<T extends { visualDirection: string }>(
-  result: T
-): T {
-  return {
-    ...result,
-    visualDirection: XIAOHONGSHU_FIXED_VISUAL_DIRECTION,
-  };
-}
+import {
+  XIAOHONGSHU_FIXED_VISUAL_DIRECTION,
+  XIAOHONGSHU_NO_PAGE_BADGES,
+} from "@/lib/xiaohongshu/visual-rules";
 
 export function buildXiaohongshuReviewSignature(input: {
   sourceBody: string;

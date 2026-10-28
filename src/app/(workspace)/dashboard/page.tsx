@@ -6,10 +6,10 @@ import { ScheduleBoard } from "@/components/shared/schedule-board";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { isArchivedStatus, isPublishedLikeStatus } from "@/lib/content-status";
-import { useAppStore } from "@/lib/store/app-store";
+import { useContentState } from "@/lib/store/app-store";
 
 export default function DashboardPage() {
-  const { contentItems } = useAppStore();
+  const { contentItems } = useContentState();
   const activeItems = contentItems.filter((item) => !isArchivedStatus(item.status));
   const pendingConfirm = activeItems.filter((i) => i.status === "待确认");
   const pendingPublish = activeItems.filter((i) => i.status === "待发布");

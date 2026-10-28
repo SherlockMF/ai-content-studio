@@ -3,7 +3,7 @@ import type {
   XiaohongshuGenerationResult,
   XiaohongshuOutline,
 } from "@/types/domain";
-import { withFixedXiaohongshuVisualDirection } from "@/lib/ai/xiaohongshu-prompt";
+import { withFixedXiaohongshuVisualDirection } from "@/lib/xiaohongshu/visual-rules";
 
 export type XiaohongshuSourceContent = {
   id: string;

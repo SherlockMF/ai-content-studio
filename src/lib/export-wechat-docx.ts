@@ -1,6 +1,7 @@
 import { buildWechatDocxBlob, renderWechatDocxFromMarkdown } from "@/lib/markdown/wechat-docx";
 import JSZip from "jszip";
 import { IMAGE_MD_RE, detectImageType, resolveMarkdownImage } from "@/lib/export-assets";
+import { stripArticlePromptText } from "@/lib/illustrations/article-slots";
 
 export function buildWechatPublishClipboard(input: { title: string; digest?: string }) {
   const lines = [`标题：${input.title.trim()}`];
@@ -37,7 +38,7 @@ export async function buildWechatPublishBundle(input: {
   body: string;
 }) {
   const zip = new JSZip();
-  let body = input.body.replace(/<!--[\s\S]*?-->/g, "");
+  let body = stripArticlePromptText(input.body).replace(/<!--[\s\S]*?-->/g, "");
   const entries = [...body.matchAll(IMAGE_MD_RE)];
   let imageCount = 0;
   for (const match of entries) {

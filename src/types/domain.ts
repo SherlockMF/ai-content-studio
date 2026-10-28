@@ -1,3 +1,5 @@
+import type { WechatLayoutSettings } from "@/lib/markdown/wechat-theme";
+
 export type Platform = "wechat" | "douyin" | "xiaohongshu";
 
 export type ContentSection =
@@ -248,6 +250,8 @@ export interface ContentItem {
   /** 最近一次 AI 润色的事实 Diff；blocking 且未确认时不可标「待发布」 */
   lastFactDiff?: FactDiffSnapshot;
   xiaohongshu?: XiaohongshuDraftData;
+  /** 公众号排版设置，与正文分开保存，不影响 Word 渲染。 */
+  wechatLayout?: WechatLayoutSettings;
   status: ContentStatus;
   publishedAt?: string | null;
   scheduledAt?: string | null;

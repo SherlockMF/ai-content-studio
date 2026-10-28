@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { DEMO_PUBLISH_VOICE } from "@/lib/mock-data";
 import { validResult } from "@/lib/xiaohongshu/test-fixtures";
-import { XIAOHONGSHU_FIXED_VISUAL_DIRECTION } from "./xiaohongshu-prompt";
+import { XIAOHONGSHU_FIXED_VISUAL_DIRECTION } from "@/lib/xiaohongshu/visual-rules";
 import { runXiaohongshuTwoPassConversion } from "./xiaohongshu-conversion";
 
 const sampleOutline = {

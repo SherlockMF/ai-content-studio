@@ -1,9 +1,9 @@
 /** 正文配图 / 封面占位与提示词状态（用于稿件页角标） */
+import { extractArticleSlots } from "@/lib/illustrations/article-slots";
 
 const IMAGE_PLACEHOLDER =
   /待替换|upload.*填链接|fill.*link|placeholder/i;
 
-const BODY_ILLUSTRATION_PROMPT = /<!--\s*GPT 配图提示词/;
 const COVER_PROMPT = /<!--\s*公众号封面 GPT 提示词/;
 const COVER_IMAGE_PLACEHOLDER = /上传封面图后填链接/;
 
@@ -32,19 +32,18 @@ function isRealImageUrl(url: string) {
 
 /** 统计正文配图占位与提示词 */
 export function analyzeIllustrationSlots(body: string): IllustrationSlotStatus {
-  const imageRe = /!\[[^\]]*\]\(([^)]+)\)/g;
+  const slots = extractArticleSlots(body);
   let total = 0;
   let filled = 0;
   let pending = 0;
 
-  for (const match of body.matchAll(imageRe)) {
+  for (const slot of slots) {
     total += 1;
-    if (isRealImageUrl(match[1])) filled += 1;
+    if (isRealImageUrl(slot.url)) filled += 1;
     else pending += 1;
   }
 
-  const withPrompt = (body.match(new RegExp(BODY_ILLUSTRATION_PROMPT.source, "g")) ?? [])
-    .length;
+  const withPrompt = slots.filter(slot => slot.prompt).length;
 
   return { total, filled, pending, withPrompt };
 }
@@ -79,9 +78,4 @@ export function analyzeCoverMedia(body: string, coverCopy?: string): CoverMediaS
   }
 
   return { hasCopy, hasPrompt, hasImage };
-}
-
-/** 封面区角标；默认不展示说明性括号文案 */
-export function formatCoverStatusHint(_body: string, _coverCopy?: string): string {
-  return "";
 }

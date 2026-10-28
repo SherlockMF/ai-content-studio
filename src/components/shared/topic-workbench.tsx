@@ -1,22 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { KnowledgeReferencePicker } from "@/components/shared/knowledge-reference-picker";
-import { withLLMPayload } from "@/lib/ai/llm-settings";
-import { collectPublishedArticles, type TopicDeduplication } from "@/lib/ai/published-topic-check";
-import { DEFAULT_SECTIONS } from "@/lib/mock-data";
-import { useAppStore } from "@/lib/store/app-store";
-import { HotspotItem, HotspotSnapshot } from "@/lib/hotspots/types";
-import { generateWechatMedia } from "@/lib/illustrations/wechat-media-client";
-import type { ContentItem } from "@/types/domain";
-import { ContentSection, KnowledgeReference, Topic, TopicDirection } from "@/types/domain";
-import { cn } from "@/lib/utils";
+import { HotspotCard } from "@/components/shared/topics/hotspot-card";
+import { TopicDirectionsCard } from "@/components/shared/topics/topic-directions-card";
+import { useTopicWorkflow } from "@/components/shared/topics/use-topic-workflow";
 
 function formatTime(value?: string) {
   if (!value) return "未抓取";
@@ -25,235 +16,20 @@ function formatTime(value?: string) {
   return new Date(parsed).toLocaleString("zh-CN", { hour12: false });
 }
 
-function normalizeSection(value: string): ContentSection {
-  return DEFAULT_SECTIONS.includes(value as ContentSection)
-    ? (value as ContentSection)
-    : "AI 通识";
-}
-
 export function TopicWorkbench() {
-  const router = useRouter();
+  const workflow = useTopicWorkflow();
   const {
-    publishVoice,
-    materials,
-    topics,
-    contentItems,
-    storeHydrated,
-    addTopics,
-    upsertContent,
-    addVersion,
-  } = useAppStore();
-
-  const [snapshot, setSnapshot] = useState<HotspotSnapshot | null>(null);
-  const [loadingHotspots, setLoadingHotspots] = useState(false);
-  const [selectedHotspotId, setSelectedHotspotId] = useState<string | null>(null);
-  const [directions, setDirections] = useState<TopicDirection[]>([]);
-  const [deduplication, setDeduplication] = useState<TopicDeduplication | null>(null);
-  const [leverageAngle, setLeverageAngle] = useState("");
-  const [selectedDirectionId, setSelectedDirectionId] = useState<string | null>(null);
-  const [loadingDirections, setLoadingDirections] = useState(false);
-  const [loadingArticle, setLoadingArticle] = useState(false);
-  const [knowledgeReferences, setKnowledgeReferences] = useState<KnowledgeReference[]>([]);
-
-  const selectedHotspot = useMemo(
-    () => snapshot?.items.find((item) => item.id === selectedHotspotId) ?? null,
-    [snapshot, selectedHotspotId]
-  );
-  const selectedDirection = directions.find((item) => item.id === selectedDirectionId) ?? null;
-  const knowledgeQuery = [
-    selectedHotspot?.title,
-    selectedHotspot?.summary,
-    selectedDirection?.title,
-    selectedDirection?.coreViewpoint,
-    selectedDirection?.angle,
-  ].filter(Boolean).join("\n");
-
-  const loadCachedHotspots = async () => {
-    const res = await fetch("/api/hotspots");
-    const json = await res.json();
-    if (json.snapshot) {
-      setSnapshot(json.snapshot);
-      if (!selectedHotspotId && json.snapshot.items[0]) {
-        setSelectedHotspotId(json.snapshot.items[0].id);
-      }
-    }
-  };
-
-  const refreshHotspots = async () => {
-    setLoadingHotspots(true);
-    try {
-      const res = await fetch("/api/hotspots", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ forceRefresh: true }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || "热点抓取失败");
-      setSnapshot(json.snapshot);
-      setDirections([]);
-      setDeduplication(null);
-      setLeverageAngle("");
-      setSelectedDirectionId(null);
-      if (json.snapshot.items[0]) setSelectedHotspotId(json.snapshot.items[0].id);
-      toast.success(`已更新 ${json.snapshot.items.length} 条 AI 相关热点`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "热点抓取失败");
-    } finally {
-      setLoadingHotspots(false);
-    }
-  };
-
-  const generateDirections = async () => {
-    if (!storeHydrated) return;
-    if (!selectedHotspot) {
-      toast.error("请先选择一条热点");
-      return;
-    }
-    setLoadingDirections(true);
-    setDirections([]);
-    setSelectedDirectionId(null);
-    setDeduplication(null);
-    try {
-      const res = await fetch("/api/ai/research-directions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          withLLMPayload({
-            voice: publishVoice,
-            materials,
-            knowledgeReferences,
-            hotspot: selectedHotspot,
-            publishedArticles: collectPublishedArticles(contentItems, topics),
-          })
-        ),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || "方向生成失败");
-      const nextDirections: TopicDirection[] = (json.directions ?? []).map(
-        (item: Omit<TopicDirection, "id" | "hotspotId" | "leverageAngle">, index: number) => ({
-          id: `direction_${Date.now()}_${index}`,
-          hotspotId: selectedHotspot.id,
-          leverageAngle: json.leverageAngle,
-          ...item,
-          section: normalizeSection(item.section),
-        })
-      );
-      setDirections(nextDirections);
-      setDeduplication(json.deduplication ?? null);
-      setLeverageAngle(json.leverageAngle ?? "");
-      setSelectedDirectionId(nextDirections[0]?.id ?? null);
-      setKnowledgeReferences([]);
-      if (nextDirections.length) toast.success(`去重后保留 ${nextDirections.length} 个话题方向`);
-      else toast.info("本批方向与已发布内容重复，请换一批或选择其他热点");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "方向生成失败");
-    } finally {
-      setLoadingDirections(false);
-    }
-  };
-
-  const generateArticle = async () => {
-    if (!selectedHotspot || !selectedDirection) {
-      toast.error("请先选择热点和话题方向");
-      return;
-    }
-    setLoadingArticle(true);
-    try {
-      const topicId = `topic_${Date.now()}`;
-      const topic: Topic = {
-        id: topicId,
-        workspaceId: "ws_demo",
-        title: selectedDirection.title,
-        coreViewpoint: selectedDirection.coreViewpoint,
-        targetAudience: selectedDirection.targetAudience,
-        painPoint: selectedDirection.angle,
-        section: selectedDirection.section,
-        platform: ["wechat"],
-        contentGoal: "建立专业信任",
-        recommendedFormat: "公众号图文",
-        openingHook: selectedDirection.openingHook,
-        scheduled: false,
-        createdAt: new Date().toISOString(),
-        hotspotId: selectedHotspot.id,
-        directionId: selectedDirection.id,
-        hotspotTitle: selectedHotspot.title,
-        outline: selectedDirection.outline,
-      };
-
-      const res = await fetch("/api/ai/wechat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          withLLMPayload({
-            voice: publishVoice,
-            materials,
-            knowledgeReferences,
-            topic,
-            hotspot: {
-              title: selectedHotspot.title,
-              url: selectedHotspot.url,
-              summary: selectedHotspot.summary,
-            },
-            direction: selectedDirection,
-          })
-        ),
-      });
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.message || "图文生成失败");
-
-      addTopics([topic]);
-      const contentId = `content_${Date.now()}`;
-      let generatedContent: ContentItem = {
-        id: contentId,
-        workspaceId: "ws_demo",
-        topicId,
-        platform: "wechat",
-        source: "ai",
-        title: result.title,
-        digest: result.digest,
-        coverCopy: result.coverCopy,
-        body: result.body,
-        cta: result.cta,
-        coverPromptPack: result.coverVariants?.length
-          ? { summary: result.coverSummary, variants: result.coverVariants }
-          : undefined,
-        status: "AI 草稿",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        scheduledAt: null,
-        publishedAt: null,
-      };
-      upsertContent(generatedContent);
-      addVersion({
-        id: `version_${Date.now()}`,
-        contentItemId: contentId,
-        versionNumber: 1,
-        title: result.title,
-        body: result.body,
-        changeSource: "ai_generate",
-        createdAt: new Date().toISOString(),
-      });
-      toast.message("文案已保存，正在生成封面和正文配图…");
-      try {
-        const mediaResult = await generateWechatMedia({
-          title: result.title, body: result.body,
-          onUpdate: (body) => {
-            generatedContent = { ...generatedContent, body, updatedAt: new Date().toISOString() };
-            upsertContent(generatedContent);
-          },
-        });
-        if (mediaResult.failures.length) toast.error(`文案已保存，${mediaResult.failures.length} 张配图未完成，可在稿件页补齐`);
-        else toast.success("图文和配图已生成，正在跳转稿件页");
-      } catch (error) {
-        toast.error(`文案已保存，配图未完成：${error instanceof Error ? error.message : "生成失败"}`);
-      }
-      router.push(`/content?topicId=${topicId}`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "图文生成失败");
-    } finally {
-      setLoadingArticle(false);
-    }
-  };
+    snapshot,
+    loadingHotspots,
+    selectedHotspotId,
+    selectedHotspot,
+    directions,
+    deduplication,
+    loadingDirections,
+    knowledgeQuery,
+    knowledgeReferences,
+    setKnowledgeReferences,
+  } = workflow;
 
   return (
     <div className="space-y-4">
@@ -265,10 +41,10 @@ export function TopicWorkbench() {
               聚合 AIHOT 热点榜 + 公开 RSS，按 AI 关键词过滤。更新于 {formatTime(snapshot?.fetchedAt)}
             </p>
           </div>
-          <Button variant="outline" onClick={loadCachedHotspots} disabled={loadingHotspots}>
+          <Button variant="outline" onClick={workflow.loadCachedHotspots} disabled={loadingHotspots}>
             读取缓存
           </Button>
-          <Button onClick={refreshHotspots} disabled={loadingHotspots}>
+          <Button onClick={workflow.refreshHotspots} disabled={loadingHotspots}>
             {loadingHotspots ? "抓取中..." : "抓取并比对"}
           </Button>
         </CardHeader>
@@ -294,14 +70,7 @@ export function TopicWorkbench() {
                       key={item.id}
                       item={item}
                       active={selectedHotspotId === item.id}
-                      onSelect={() => {
-                        setSelectedHotspotId(item.id);
-                        setDirections([]);
-                        setDeduplication(null);
-                        setSelectedDirectionId(null);
-                        setLeverageAngle("");
-                        setKnowledgeReferences([]);
-                      }}
+                      onSelect={() => workflow.selectHotspot(item.id)}
                     />
                   ))}
                 </div>
@@ -328,8 +97,8 @@ export function TopicWorkbench() {
           ) : null}
           <Button
             variant="secondary"
-            disabled={!storeHydrated || !selectedHotspot || loadingDirections}
-            onClick={generateDirections}
+            disabled={!workflow.storeHydrated || !selectedHotspot || loadingDirections}
+            onClick={workflow.generateDirections}
           >
             {loadingDirections ? "生成并检查重复中..." : "生成三个话题方向"}
           </Button>
@@ -353,64 +122,28 @@ export function TopicWorkbench() {
       ) : null}
 
       {directions.length ? (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">话题方向（{directions.length}）</CardTitle>
-            {leverageAngle ? (
-              <p className="text-sm text-slate-600">蹭热点角度：{leverageAngle}</p>
-            ) : null}
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-3 lg:grid-cols-3">
-              {directions.map((direction) => (
-                <button
-                  key={direction.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedDirectionId(direction.id);
-                    setKnowledgeReferences([]);
-                  }}
-                  className={cn(
-                    "rounded-xl border p-4 text-left transition hover:bg-slate-50",
-                    selectedDirectionId === direction.id
-                      ? "border-slate-900 bg-slate-50"
-                      : "border-slate-200"
-                  )}
-                >
-                  <p className="text-sm font-medium">{direction.title}</p>
-                  <p className="mt-2 text-xs text-slate-600">{direction.angle}</p>
-                  <p className="mt-2 text-xs text-slate-500">为什么现在写：{direction.whyNow}</p>
-                  <ul className="mt-3 list-disc space-y-1 pl-4 text-xs text-slate-500">
-                    {direction.outline.slice(0, 4).map((line) => (
-                      <li key={line}>{line}</li>
-                    ))}
-                  </ul>
-                </button>
-              ))}
-            </div>
-            <KnowledgeReferencePicker
-              query={knowledgeQuery}
-              value={knowledgeReferences}
-              onChange={setKnowledgeReferences}
-            />
-            <div className="flex flex-wrap gap-2">
-              <Button disabled={!selectedDirection || loadingArticle} onClick={generateArticle}>
-                {loadingArticle ? "生成中..." : "生成完整公众号图文"}
-              </Button>
-              <Button variant="outline" disabled={loadingDirections} onClick={generateDirections}>
-                换一批方向
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+        <TopicDirectionsCard
+          directions={directions}
+          leverageAngle={workflow.leverageAngle}
+          selectedDirectionId={workflow.selectedDirectionId}
+          onSelectDirection={workflow.selectDirection}
+          knowledgeQuery={knowledgeQuery}
+          knowledgeReferences={knowledgeReferences}
+          onKnowledgeChange={setKnowledgeReferences}
+          canGenerateArticle={Boolean(workflow.selectedDirection)}
+          loadingArticle={workflow.loadingArticle}
+          loadingDirections={loadingDirections}
+          onGenerateArticle={workflow.generateArticle}
+          onRegenerateDirections={workflow.generateDirections}
+        />
       ) : null}
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">已有选题（{topics.length}）</CardTitle>
+          <CardTitle className="text-base">已有选题（{workflow.topicCount}）</CardTitle>
         </CardHeader>
         <CardContent>
-          {topics.length === 0 ? (
+          {workflow.topicCount === 0 ? (
             <p className="text-sm text-slate-500">从热点研究生成后，选题会自动出现在这里。</p>
           ) : (
             <p className="text-sm text-slate-500">下方列表展示已保存选题，可继续排期或去稿件页编辑。</p>
@@ -418,41 +151,5 @@ export function TopicWorkbench() {
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-function HotspotCard({
-  item,
-  active,
-  onSelect,
-}: {
-  item: HotspotItem;
-  active: boolean;
-  onSelect: () => void;
-}) {
-  const sourceLabel =
-    item.sourceName.length > 12 ? `${item.sourceName.slice(0, 12)}…` : item.sourceName;
-
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      title={item.title}
-      className={cn(
-        "flex h-28 flex-col rounded-lg border p-2.5 text-left transition hover:bg-white",
-        active ? "border-slate-900 bg-white shadow-sm" : "border-slate-200 bg-white/80"
-      )}
-    >
-      <div className="flex items-center justify-between gap-1">
-        <Badge variant="outline" className="max-w-[70%] truncate px-1.5 py-0 text-[10px]">
-          {sourceLabel}
-        </Badge>
-        <span className="shrink-0 text-[10px] text-slate-400">{item.relevance}</span>
-      </div>
-      <p className="mt-2 line-clamp-3 flex-1 text-xs leading-5 font-medium text-slate-900">
-        {item.title}
-      </p>
-      <span className="mt-1 text-[10px] text-slate-400">热度 {item.heat}</span>
-    </button>
   );
 }

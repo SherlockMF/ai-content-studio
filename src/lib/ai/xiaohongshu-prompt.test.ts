@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { validResult } from "@/lib/xiaohongshu/test-fixtures";
 import { xiaohongshuOutlineSchema } from "@/lib/ai/schemas";
+import { XIAOHONGSHU_FIXED_VISUAL_DIRECTION } from "@/lib/xiaohongshu/visual-rules";
 import {
-  XIAOHONGSHU_FIXED_VISUAL_DIRECTION,
   buildXiaohongshuConversionPrompt,
   buildXiaohongshuOutlinePrompt,
   buildXiaohongshuReviewPrompt,

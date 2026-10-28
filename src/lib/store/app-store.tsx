@@ -1,52 +1,35 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
-import {
-  DEMO_CONTENT_ITEMS,
-  DEMO_MATERIALS,
-  DEMO_PUBLISH_VOICE,
-  DEMO_REVIEWS,
-  DEMO_TOPICS,
-  DEMO_VERSIONS,
-} from "@/lib/mock-data";
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { fillXiaohongshuImagePlan, countMissingXiaohongshuImages } from "@/lib/xiaohongshu/generate-images";
 import { mergeGeneratedImage } from "@/lib/xiaohongshu/merge-generated-image";
 import { planAutomaticSchedule } from "@/lib/auto-schedule";
+import { createUniqueId } from "@/lib/ids";
 import { applyScheduleWithCascade, remapCascadeSchedules } from "@/lib/schedule";
-import { normalizeContentStatus } from "@/lib/content-status";
-import { normalizeXiaohongshuContent } from "@/lib/xiaohongshu/content";
 import {
-  inferContentSource,
-  maybeRestoreSeedContent,
-  restoreOrphanedXiaohongshuFromVersions,
-  syncBuiltinSeedArticles,
-  CURRENT_SEED_FINGERPRINT,
-} from "@/lib/seed/restore";
-import {
-  ContentItem,
-  ContentReview,
-  ContentVersion,
-  MaterialItem,
-  PublishVoice,
-  Topic,
-} from "@/types/domain";
+  applyProjectDraftOverlays,
+  parseStoredState,
+  seedData,
+  STORAGE_KEY,
+  type AppState,
+} from "./hydrate";
+import type { ContentItem, MaterialItem, PublishVoice, Topic, ContentVersion, ContentReview } from "@/types/domain";
 
-interface AppStoreValue {
-  imageJobs: Record<string, { running: boolean; progress: string }>;
+export type { AppState };
+
+export type ImageJobs = Record<string, { running: boolean; progress: string }>;
+
+/** 稿件、版本、质检与排期开关：编辑时高频变化 */
+export type ContentState = Pick<AppState, "contentItems" | "versions" | "reviews" | "autoScheduleEnabled">;
+/** 人设、素材、选题：低频变化 */
+export type WorkspaceState = Pick<AppState, "publishVoice" | "materials" | "topics">;
+
+export interface StoreActions {
   generateXiaohongshuImages: (content: ContentItem, onlyMissing: boolean) => Promise<void>;
-  publishVoice: PublishVoice;
-  materials: MaterialItem[];
-  topics: Topic[];
-  contentItems: ContentItem[];
-  reviews: ContentReview[];
-  versions: ContentVersion[];
-  autoScheduleEnabled?: boolean;
   setAutoScheduleEnabled: (enabled: boolean) => void;
   replanSchedule: () => void;
   unlockContentSchedule: (id: string) => void;
-  /** localStorage 已恢复，可与服务端首屏安全分叉 */
-  storeHydrated: boolean;
   updatePublishVoice: (patch: Partial<PublishVoice>) => void;
   upsertMaterial: (item: MaterialItem) => void;
   toggleMaterial: (id: string) => void;
@@ -71,120 +54,80 @@ interface AppStoreValue {
   setReviews: (value: ContentReview[]) => void;
   addReview: (review: ContentReview) => void;
   replaceState: (value: AppState) => void;
+  /** 当前完整快照（与持久化内容一致），用于备份 */
+  getSnapshot: () => AppState;
 }
 
-export interface AppState {
-  autoScheduleEnabled?: boolean;
-  publishVoice: PublishVoice;
-  materials: MaterialItem[];
-  topics: Topic[];
-  contentItems: ContentItem[];
-  reviews: ContentReview[];
-  versions: ContentVersion[];
-  /** 种子稿指纹，变更后触发本地数据同步 */
-  seedFingerprint?: string;
-  seedVersion?: number;
-}
+const PERSIST_DELAY_MS = 300;
 
 function replanIfEnabled(state: AppState): AppState {
   return state.autoScheduleEnabled ? { ...state, ...planAutomaticSchedule(state.contentItems, state.topics) } : state;
 }
 
-const STORAGE_KEY = "ai-content-publishing-workbench-v3";
-
-const AppStoreContext = createContext<AppStoreValue | null>(null);
-
-function seedData(): AppState {
-  return {
-    publishVoice: DEMO_PUBLISH_VOICE,
-    materials: DEMO_MATERIALS,
-    topics: DEMO_TOPICS,
-    contentItems: DEMO_CONTENT_ITEMS,
-    reviews: DEMO_REVIEWS,
-    versions: DEMO_VERSIONS,
-  };
+function writeState(state: AppState) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
-function migrateState(parsed: Partial<AppState>): AppState {
-  const base = { ...seedData(), ...parsed } as AppState;
-  let state: AppState = {
-    ...base,
-    reviews: (base.reviews ?? []).map((review) => ({
-      ...review,
-      issues: Array.isArray(review.issues) ? review.issues : [],
-      score: typeof review.score === "number" ? review.score : 0,
-    })),
-    contentItems: base.contentItems.map((item) =>
-      normalizeXiaohongshuContent(
-        maybeRestoreSeedContent({
-          ...item,
-          source: inferContentSource(item),
-          status: normalizeContentStatus(item.status),
-        })
-      )
-    ),
-  };
-
-  state = {
-    ...state,
-    contentItems: restoreOrphanedXiaohongshuFromVersions({
-      contentItems: state.contentItems,
-      versions: state.versions ?? [],
-    }).map(normalizeXiaohongshuContent),
-  };
-
-  if ((parsed.seedFingerprint ?? "") !== CURRENT_SEED_FINGERPRINT) {
-    const synced = syncBuiltinSeedArticles(state);
-    state = {
-      ...state,
-      ...synced,
-      seedFingerprint: CURRENT_SEED_FINGERPRINT,
-    };
-    state = {
-      ...state,
-      contentItems: restoreOrphanedXiaohongshuFromVersions({
-        contentItems: state.contentItems,
-        versions: state.versions ?? [],
-      }).map(normalizeXiaohongshuContent),
-    };
-  }
-
-  return state;
+async function fetchOverlayText(url: string) {
+  const response = await fetch(url, { cache: "no-store" });
+  return response.ok ? response.text() : null;
 }
+
+const ContentStateContext = createContext<ContentState | null>(null);
+const WorkspaceStateContext = createContext<WorkspaceState | null>(null);
+const ImageJobsContext = createContext<ImageJobs | null>(null);
+/** localStorage 已恢复，可与服务端首屏安全分叉 */
+const HydratedContext = createContext<boolean | null>(null);
+const ActionsContext = createContext<StoreActions | null>(null);
 
 export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AppState>(() => seedData());
   const [storeHydrated, setStoreHydrated] = useState(false);
-  const [imageJobs, setImageJobs] = useState<AppStoreValue["imageJobs"]>({});
+  const [imageJobs, setImageJobs] = useState<ImageJobs>({});
   const imageTasks = useRef(new Map<string, Promise<void>>());
+  const stateRef = useRef(state);
+
+  useLayoutEffect(() => {
+    stateRef.current = state;
+  });
 
   useEffect(() => {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as Partial<AppState>;
-        if (parsed.publishVoice && parsed.materials) {
-          // Hydrate from localStorage after mount; initial render uses seedData for SSR parity.
-          // eslint-disable-next-line react-hooks/set-state-in-effect -- localStorage hydration
-          setState(migrateState(parsed));
-        }
-      } catch {
-        window.localStorage.removeItem(STORAGE_KEY);
-      }
-    }
-    setStoreHydrated(true);
+    let cancelled = false;
+    (async () => {
+      const { state: restored, corrupt } = parseStoredState(window.localStorage.getItem(STORAGE_KEY));
+      if (corrupt) window.localStorage.removeItem(STORAGE_KEY);
+      const next = await applyProjectDraftOverlays(restored, fetchOverlayText);
+      if (cancelled) return;
+      setState(next);
+      setStoreHydrated(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
     if (!storeHydrated) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state, storeHydrated, imageJobs]);
+    const timer = window.setTimeout(() => writeState(state), PERSIST_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [state, storeHydrated]);
 
-  const value = useMemo<AppStoreValue>(
+  useEffect(() => {
+    if (!storeHydrated) return;
+    const flush = () => writeState(stateRef.current);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [storeHydrated]);
+
+  const actions = useMemo<StoreActions>(
     () => ({
-      ...state,
-      storeHydrated,
-      imageJobs,
       generateXiaohongshuImages: (content, onlyMissing) => {
         const pending = imageTasks.current.get(content.id);
         if (pending) return pending;
@@ -204,7 +147,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
               })),
             });
             const now = new Date().toISOString();
-            const versionId = `version_images_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            const versionId = createUniqueId("version_images");
             setState(prev => {
               const saved = prev.contentItems.find(item => item.id === content.id);
               if (!saved?.xiaohongshu) return prev;
@@ -311,8 +254,9 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
           return replanIfEnabled({ ...prev, contentItems });
         }),
       scheduleContent: (item) => {
+        const current = stateRef.current;
         const preview = planAutomaticSchedule(
-          [...state.contentItems.filter(c => c.id !== item.id), { ...item, scheduleMode: "auto" }], state.topics);
+          [...current.contentItems.filter(c => c.id !== item.id), { ...item, scheduleMode: "auto" }], current.topics);
         const scheduledAt = preview.contentItems.find(c => c.id === item.id)!.scheduledAt!;
         setState(prev => {
           const nextItem: ContentItem = { ...item, scheduledAt, scheduleMode: "auto" };
@@ -330,17 +274,56 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
           reviews: [review, ...prev.reviews.filter((item) => item.id !== review.id)],
         })),
       replaceState: (value) => setState(value),
+      getSnapshot: () => stateRef.current,
     }),
-    [state, storeHydrated, imageJobs]
+    []
   );
 
-  return <AppStoreContext.Provider value={value}>{children}</AppStoreContext.Provider>;
+  const { contentItems, versions, reviews, autoScheduleEnabled, publishVoice, materials, topics } = state;
+  const contentState = useMemo<ContentState>(
+    () => ({ contentItems, versions, reviews, autoScheduleEnabled }),
+    [contentItems, versions, reviews, autoScheduleEnabled]
+  );
+  const workspaceState = useMemo<WorkspaceState>(
+    () => ({ publishVoice, materials, topics }),
+    [publishVoice, materials, topics]
+  );
+
+  return (
+    <ActionsContext.Provider value={actions}>
+      <HydratedContext.Provider value={storeHydrated}>
+        <WorkspaceStateContext.Provider value={workspaceState}>
+          <ContentStateContext.Provider value={contentState}>
+            <ImageJobsContext.Provider value={imageJobs}>{children}</ImageJobsContext.Provider>
+          </ContentStateContext.Provider>
+        </WorkspaceStateContext.Provider>
+      </HydratedContext.Provider>
+    </ActionsContext.Provider>
+  );
 }
 
-export function useAppStore() {
-  const context = useContext(AppStoreContext);
-  if (!context) {
-    throw new Error("useAppStore must be used in AppStoreProvider");
-  }
-  return context;
+function useRequiredContext<T>(context: React.Context<T | null>, name: string): T {
+  const value = useContext(context);
+  if (value === null) throw new Error(`${name} must be used in AppStoreProvider`);
+  return value;
+}
+
+export function useContentState() {
+  return useRequiredContext(ContentStateContext, "useContentState");
+}
+
+export function useWorkspaceState() {
+  return useRequiredContext(WorkspaceStateContext, "useWorkspaceState");
+}
+
+export function useImageJobs() {
+  return useRequiredContext(ImageJobsContext, "useImageJobs");
+}
+
+export function useStoreHydrated() {
+  return useRequiredContext(HydratedContext, "useStoreHydrated");
+}
+
+export function useStoreActions() {
+  return useRequiredContext(ActionsContext, "useStoreActions");
 }

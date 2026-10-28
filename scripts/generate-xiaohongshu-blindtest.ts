@@ -11,7 +11,7 @@ import { DEMO_PUBLISH_VOICE } from "../src/lib/mock-data";
 import { generateXiaohongshuArticle } from "../src/lib/ai/generators";
 import { generateDashScopeImage } from "../src/lib/ai/image/dashscope-image";
 import { IMAGE_SIZE_BY_PURPOSE } from "../src/lib/ai/image-settings";
-import { XIAOHONGSHU_FIXED_VISUAL_DIRECTION } from "../src/lib/ai/xiaohongshu-prompt";
+import { XIAOHONGSHU_FIXED_VISUAL_DIRECTION } from "../src/lib/xiaohongshu/visual-rules";
 import { PARVIS_BLINDTEST_SUPPLEMENTARY_NOTES } from "../src/lib/content-supplementary-notes";
 import { buildXiaohongshuRenderPrompt } from "../src/lib/xiaohongshu/generate-images";
 import { ARTICLE_PARVIS_BLINDTEST } from "../src/lib/seed/parvis-blindtest-article";

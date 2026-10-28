@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { insertAfterAnchor } from "./insert";
+import { extractArticleSlots } from "./article-slots";
 
 export const wechatMediaImageSchema = z.object({
   sourceIndex: z.number().int().nonnegative().nullable(),
@@ -16,14 +17,16 @@ export type WechatMediaPlan = { body: string; images: WechatMediaImage[] };
 
 export function extractWechatImages(body: string) {
   const images: ExistingImage[] = [];
-  const clean = body.replace(/!\[([^\]]*)\]\(([^)]+)\)(?:\s*<!--\s*(公众号封面 GPT 提示词[^\n]*|GPT 配图提示词[^\n]*)\n([\s\S]*?)-->|\s*\*提示词[：:]([^\n]*)\*)?/g,
-    (block: string, altText: string, url: string, header: string | undefined, prompt: string | undefined, inlinePrompt: string | undefined, offset: number) => {
-      images.push({ url, altText, prompt: (prompt ?? inlinePrompt ?? "").trim(),
-        purpose: /封面/.test(`${altText} ${header ?? ""} ${url}`) ? "cover" : "illustration",
-        context: body.slice(Math.max(0, offset - 180), offset) + body.slice(offset + block.length, offset + block.length + 180),
-      });
-      return "";
+  const slots = extractArticleSlots(body);
+  if (slots.some(slot => slot.embeddedImages.length)) throw new Error("检测到图片误插在提示词中，请先在配图列表恢复图片后再规划配图");
+  let clean = body;
+  for (const slot of slots) {
+    images.push({ url: slot.url, altText: slot.alt, prompt: slot.prompt,
+      purpose: /封面/.test(`${slot.alt} ${body.slice(slot.end, slot.promptEnd)} ${slot.url}`) ? "cover" : "illustration",
+      context: body.slice(Math.max(0, slot.start - 180), slot.start) + body.slice(slot.promptEnd, slot.promptEnd + 180),
     });
+  }
+  for (const slot of slots.reverse()) clean = clean.slice(0, slot.start) + clean.slice(slot.promptEnd);
   return { body: clean.trim(), images };
 }
 

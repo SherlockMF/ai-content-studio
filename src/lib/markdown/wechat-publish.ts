@@ -4,8 +4,11 @@ import { collectWechatEditorialFlags } from "@/lib/markdown/wechat-editorial-fla
 import {
   renderWechatHtml,
   wrapClipboardHtml,
+  escapeHtml,
 } from "@/lib/markdown/wechat-html";
-import { WechatThemeId } from "@/lib/markdown/wechat-theme";
+import type { WechatLayoutSettings } from "@/lib/markdown/wechat-theme";
+import { validateWechatHtml } from "@/lib/markdown/wechat-html-validation";
+import { stripArticlePromptText } from "@/lib/illustrations/article-slots";
 import { buildWechatPublishClipboard } from "@/lib/export-wechat-docx";
 import { FactDiffReport } from "@/lib/fact-diff";
 
@@ -148,29 +151,41 @@ export function buildWechatPublishChecks(input: {
   return checks;
 }
 
-export async function buildWechatPublishHtml(input: {
+type PublishHtmlInput = Partial<WechatLayoutSettings> & {
   body: string;
-  theme?: WechatThemeId;
   embedImages?: boolean;
   origin?: string;
-}) {
-  return renderWechatHtml(input.body, {
+};
+
+export async function buildWechatPublishHtml(input: PublishHtmlInput) {
+  const html = await renderWechatHtml(stripArticlePromptText(input.body), {
     theme: input.theme ?? "tech-eval",
+    numberSections: input.numberSections,
+    emphasize: input.emphasize,
     embedImages: input.embedImages ?? true,
     stripH1: true,
     origin: input.origin ?? (typeof window !== "undefined" ? window.location.origin : ""),
   });
+  const result = validateWechatHtml(html);
+  if (result.errors.length) throw new Error(`排版检查未通过：${result.errors.join("；")}`);
+  return html;
 }
 
-export async function copyWechatRichText(input: {
+export async function buildWechatHtmlDocument(input: Partial<WechatLayoutSettings> & { body: string; title: string }) {
+  const fragment = await buildWechatPublishHtml({ ...input, embedImages: true });
+  return `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(input.title)}</title></head><body style="margin: 0 auto; max-width: 677px; background: #ffffff;">${fragment}</body></html>`;
+}
+
+export async function copyWechatRichText(input: Partial<WechatLayoutSettings> & {
   body: string;
   title: string;
   digest?: string;
-  theme?: WechatThemeId;
 }) {
   const fragment = await buildWechatPublishHtml({
     body: input.body,
     theme: input.theme,
+    numberSections: input.numberSections,
+    emphasize: input.emphasize,
     embedImages: true,
   });
   const html = wrapClipboardHtml(fragment);

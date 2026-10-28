@@ -44,12 +44,6 @@ export const wechatArticleSchema = z.object({
   cta: z.string(),
 });
 
-export const contentOutputSchema = z.object({
-  title: z.string(),
-  body: z.string(),
-  cta: z.string(),
-});
-
 const xiaohongshuVariantSchema = z
   .object({
     title: z.string(),
@@ -179,9 +173,4 @@ export const coverImageOutputSchema = z.object({
   summary: z.string().optional(),
   /** 模型偶发多返回时仍解析成功，调用方只取第一套 */
   variants: z.array(coverImageVariantSchema).min(1).max(4),
-});
-
-export const coverPromptRefineOutputSchema = z.object({
-  gptPrompt: z.string().trim().min(1),
-  overlayText: z.string().trim().min(1).optional(),
 });

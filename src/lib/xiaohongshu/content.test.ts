@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { xiaohongshuOutputSchema } from "@/lib/ai/schemas";
-import { XIAOHONGSHU_FIXED_VISUAL_DIRECTION } from "@/lib/ai/xiaohongshu-prompt";
+import { XIAOHONGSHU_FIXED_VISUAL_DIRECTION } from "@/lib/xiaohongshu/visual-rules";
 import {
   createXiaohongshuContent,
   normalizeXiaohongshuContent,

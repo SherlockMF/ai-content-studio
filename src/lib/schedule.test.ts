@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   applyScheduleWithCascade,
   buildScheduleHeatmap,
+  getScheduleHeatTone,
+  getScheduleHeatCounts,
   remapCascadeSchedules,
 } from "@/lib/schedule";
 import type { ContentItem } from "@/types/domain";
@@ -43,6 +45,20 @@ test("buildScheduleHeatmap lights cells with scheduled posts in 7-day columns", 
   const lit = weeks.flat().filter((cell) => cell.items.length > 0);
   assert.equal(lit.length, 1);
   assert.equal(lit[0]?.dateKey, "2026-09-07");
+});
+
+test("heatmap distinguishes empty drafts from unpublished and published posts", () => {
+  const emptyDraft = { ...item("empty", "2026-09-07T12:00:00.000Z"), body: "  \n" };
+  const draft = item("draft", "2026-09-08T12:00:00.000Z");
+  const published = { ...item("published", "2026-09-09T12:00:00.000Z", "已归档"), body: "" };
+  assert.equal(getScheduleHeatTone([]), "empty");
+  assert.equal(getScheduleHeatTone([emptyDraft]), "empty");
+  assert.equal(getScheduleHeatTone([emptyDraft, draft]), "scheduled");
+  assert.equal(getScheduleHeatTone([draft, published]), "published");
+  assert.deepEqual(getScheduleHeatCounts([emptyDraft, draft, published, item("unscheduled", null)]), {
+    published: 1,
+    scheduled: 1,
+  });
 });
 
 test("applyScheduleWithCascade locks one date and delays the rest to later weekdays", () => {

@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { copyWithToast } from "@/lib/client-actions";
 import {
   buildIllustrationImageBlock,
   buildIllustrationPlaceholder,
@@ -95,10 +96,8 @@ function SuggestionCard({
 }) {
   const [expanded, setExpanded] = useState(false);
 
-  const copyPrompt = async () => {
-    await navigator.clipboard.writeText(item.gptPrompt);
-    toast.success("配图提示词已复制，可粘贴到 ChatGPT 生图");
-  };
+  const copyPrompt = () =>
+    copyWithToast(item.gptPrompt, "配图提示词已复制，可粘贴到 ChatGPT 生图");
 
   return (
     <div className="rounded-lg border p-4 space-y-3">

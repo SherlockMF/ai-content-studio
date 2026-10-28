@@ -1,13 +1,13 @@
 import {
   ContentItem,
   ContentReview,
-  ContentSection,
   ContentVersion,
   MaterialItem,
   PublishVoice,
   Topic,
   Workspace,
 } from "@/types/domain";
+import { DEFAULT_PUBLISH_VOICE, DEFAULT_WORKSPACE } from "@/lib/defaults";
 import { nextWeekdays } from "@/lib/schedule";
 import { ARTICLE_GIS, ARTICLE_HARNESS } from "@/lib/seed/articles";
 import { ORG_ARCHITECTURE_SERIES } from "@/lib/seed/org-architecture-series";
@@ -31,29 +31,9 @@ const ORG_SERIES_WEEKDAYS = nextWeekdays(ORG_SERIES_START, ORG_ARCHITECTURE_SERI
   noonIso
 );
 
-export const DEMO_WORKSPACE: Workspace = {
-  id: "ws_demo",
-  name: "AI 内容发布工作台",
-};
+export const DEMO_WORKSPACE: Workspace = DEFAULT_WORKSPACE;
 
-export const DEFAULT_SECTIONS: ContentSection[] = [
-  "AI 通识",
-  "工具与工作流",
-  "组织 AI 进化",
-  "行业观察",
-];
-
-export const DEMO_PUBLISH_VOICE: PublishVoice = {
-  id: "voice_1",
-  workspaceId: DEMO_WORKSPACE.id,
-  accountName: "AI 进化笔记",
-  voice: "关注 AI 应用与工作方式变化的内容创作者",
-  audience: "对 AI 感兴趣的职场人、创业者与团队管理者",
-  style: "清晰、克制、有观点，少套话，多用具体场景",
-  bannedExpressions: "未来已来、颠覆一切、闭眼入、无脑照做、赋能闭环",
-  defaultSections: DEFAULT_SECTIONS,
-  conversionNote: "引导关注公众号，偶尔引导私信交流实践经验",
-};
+export const DEMO_PUBLISH_VOICE: PublishVoice = DEFAULT_PUBLISH_VOICE;
 
 export const DEMO_MATERIALS: MaterialItem[] = [
   {

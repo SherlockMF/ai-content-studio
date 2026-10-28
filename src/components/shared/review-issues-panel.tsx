@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { withLLMPayload } from "@/lib/ai/llm-settings";
+import { requestReviewRevision } from "@/lib/api-client";
 import { reviewRevisionDraftSchema, reviewRevisionSignature, selectedReviewIssues, type ReviewRevisionDraft } from "@/lib/review-revision";
 import type { ContentReview } from "@/types/domain";
 
@@ -38,12 +38,10 @@ export function ReviewIssuesPanel({ review, draft, sourceBody, supplementaryNote
     setLoading(true);
     setError("");
     try {
-      const response = await fetch("/api/ai/review/revise", {
-        method: "POST", headers: { "Content-Type": "application/json" }, signal: request.signal,
-        body: JSON.stringify(withLLMPayload({ draft, issues, sourceBody, supplementaryNotes, targetAudience })),
-      });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.message || "质检修改失败，原稿未改动");
+      const result = await requestReviewRevision(
+        { draft, issues, sourceBody, supplementaryNotes, targetAudience },
+        request.signal
+      );
       if (request.signal.aborted) return;
       if (currentSignature.current !== signature) {
         toast.message("稿件或来源已更新，本次修改未应用，请重新质检");
@@ -56,7 +54,7 @@ export function ReviewIssuesPanel({ review, draft, sourceBody, supplementaryNote
         return;
       }
       onApply(revised);
-      toast.success(`已按所选条目修改并保存版本，请重新质检${result.changedImages > 0 ? `；${result.changedImages} 张配图方案已更新，请重新生成图片` : ""}`);
+      toast.success(`已按所选条目修改并保存版本，请重新质检${(result.changedImages ?? 0) > 0 ? `；${result.changedImages} 张配图方案已更新，请重新生成图片` : ""}`);
       if (result.notes) toast.message(result.notes);
     } catch (err) {
       if (!request.signal.aborted) setError(err instanceof Error ? err.message : "修改失败，原稿未改动");

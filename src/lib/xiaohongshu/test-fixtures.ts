@@ -1,5 +1,5 @@
 import type { ContentItem, XiaohongshuGenerationResult } from "@/types/domain";
-import { XIAOHONGSHU_FIXED_VISUAL_DIRECTION } from "@/lib/ai/xiaohongshu-prompt";
+import { XIAOHONGSHU_FIXED_VISUAL_DIRECTION } from "@/lib/xiaohongshu/visual-rules";
 
 export const now = "2026-09-03T01:00:00.000Z";
 

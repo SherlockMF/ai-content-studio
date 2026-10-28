@@ -1,22 +1,23 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { useAppStore, type AppState } from "@/lib/store/app-store";
+import { useStoreActions, useStoreHydrated, type AppState } from "@/lib/store/app-store";
 import { toast } from "sonner";
 import { useRef, useState } from "react";
 import { mergeSnapshots } from "@/lib/store/merge-snapshots";
+import { STORAGE_KEY } from "@/lib/store/hydrate";
+import { downloadBlob } from "@/lib/client-actions";
 
 function downloadBackup(raw: string) {
-  const url = URL.createObjectURL(new Blob([raw], { type: "application/json" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `workbench-${location.hostname}-${location.port}-${Date.now()}.json`;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  downloadBlob(
+    new Blob([raw], { type: "application/json" }),
+    `workbench-${location.hostname}-${location.port}-${Date.now()}.json`
+  );
 }
 
 export function LocalDataBackup() {
-  const { storeHydrated, replaceState } = useAppStore();
+  const storeHydrated = useStoreHydrated();
+  const { replaceState, getSnapshot } = useStoreActions();
   const fileInput = useRef<HTMLInputElement>(null);
   const [pasted, setPasted] = useState("");
   const applyBackup = (text: string) => {
@@ -25,11 +26,11 @@ export function LocalDataBackup() {
       if (!incoming.publishVoice || !["topics", "materials", "contentItems", "reviews", "versions"].every((key) => Array.isArray(incoming[key]) && incoming[key].every((item: { id?: unknown }) => item && typeof item.id === "string"))) {
         throw new Error("不是有效的工作台数据备份");
       }
-      const raw = localStorage.getItem("ai-content-publishing-workbench-v3");
-      if (!raw) throw new Error("请等待本地数据加载完成");
+      if (!storeHydrated) throw new Error("请等待本地数据加载完成");
+      const raw = JSON.stringify(getSnapshot());
       const result = mergeSnapshots(JSON.parse(raw) as AppState, incoming as AppState);
       downloadBackup(raw);
-      localStorage.setItem("ai-content-publishing-workbench-v3", JSON.stringify(result.state));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(result.state));
       replaceState(result.state);
       setPasted("");
       toast.success(`合并完成：新增 ${result.added} 篇，${result.conflicts} 处差异已选用较新版`);
@@ -38,9 +39,7 @@ export function LocalDataBackup() {
   return <div className="space-y-2">
     <div className="flex flex-wrap gap-2">
       <Button variant="outline" disabled={!storeHydrated} onClick={() => {
-        const raw = localStorage.getItem("ai-content-publishing-workbench-v3");
-        if (!raw) { toast.error("没有可备份的数据"); return; }
-        downloadBackup(raw);
+        downloadBackup(JSON.stringify(getSnapshot()));
         toast.success("稿件数据已备份（不含 API Key，图片文件保留在项目目录）");
       }}>备份本地稿件数据</Button>
       <Button variant="outline" disabled={!storeHydrated} onClick={() => fileInput.current?.click()}>合并其他端口备份</Button>

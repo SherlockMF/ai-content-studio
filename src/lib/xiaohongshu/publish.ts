@@ -16,7 +16,7 @@ import {
   detectOffPlatformDiversion,
   formatDiversionHint,
 } from "@/lib/content-ops/topic-publish-revision";
-import { XIAOHONGSHU_NO_PAGE_BADGES } from "@/lib/ai/xiaohongshu-prompt";
+import { XIAOHONGSHU_NO_PAGE_BADGES } from "@/lib/xiaohongshu/visual-rules";
 
 export interface XiaohongshuPublishCheck {
   id: "title" | "body" | "hashtags" | "images" | "rendered-images" | "review" | "off-platform";
